@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: ligma-server
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: curl -fsSL https://bun.sh/install | bash && $HOME/.bun/bin/bun install
+    startCommand: $HOME/.bun/bin/bun run src/index.ts
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ligma-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: HUGGINGFACE_API_KEY
+        sync: false
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+
+databases:
+  - name: ligma-db
+    plan: free
+    databaseName: ligma
+    user: ligmauser
