@@ -4,6 +4,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { WebSocket } from 'ws';
+import { logEvent } from './event-log';
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -74,6 +75,18 @@ export function handleConnection(ws: WebSocket, roomId: string, userId: string):
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeUpdate(encoder, update);
     broadcast(room, ws, encoding.toUint8Array(encoder));
+
+    const originTag = typeof origin === 'string' ? origin : undefined;
+    const nodeMatch = originTag?.match(/^node:([^:]+):(.+)$/);
+    const eventType = nodeMatch ? nodeMatch[2] : (originTag ?? 'doc_update');
+    const nodeId = nodeMatch ? nodeMatch[1] : null;
+    logEvent({
+      roomId,
+      userId,
+      eventType,
+      nodeId,
+      payload: { update: Buffer.from(update).toString('base64') },
+    }).catch((err) => console.error('event-log error:', err));
   };
 
   // Awareness update handler
