@@ -1,4 +1,4 @@
-import { pool } from '../db';
+import { pool } from '../db/client.js';
 
 interface LogEventParams {
   roomId: string;
@@ -8,7 +8,8 @@ interface LogEventParams {
   payload: Record<string, unknown>;
 }
 
-interface EventRow {
+export interface EventRow {
+  id: number;
   seq_id: number;
   room_id: string;
   user_id: string;
@@ -24,7 +25,15 @@ export async function logEvent(params: LogEventParams): Promise<EventRow> {
     `INSERT INTO events (room_id, user_id, event_type, node_id, payload)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [roomId, userId, eventType, nodeId, payload],
+    [roomId, userId, eventType, nodeId, JSON.stringify(payload)],
   );
   return rows[0];
+}
+
+export async function getEventsSince(roomId: string, lastSeqId: number): Promise<EventRow[]> {
+  const { rows } = await pool.query<EventRow>(
+    'SELECT * FROM events WHERE room_id = $1 AND seq_id > $2 ORDER BY seq_id ASC',
+    [roomId, lastSeqId],
+  );
+  return rows;
 }
