@@ -11,7 +11,10 @@ export const query = (text: string, params?: unknown[]) =>
   pool.query(text, params as pg.QueryConfigValues<unknown[]>);
 
 export async function runMigrations(): Promise<void> {
-  const schemaUrl = new URL('./schema.sql', import.meta.url);
-  const sql = await Bun.file(schemaUrl).text();
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { join, dirname } = await import('node:path');
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const sql = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
   await pool.query(sql);
 }

@@ -5,7 +5,9 @@ import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
 import authRoutes from '@/routes/auth.js';
 import roomsRoutes from '@/routes/rooms.js';
+import intentRoutes from '@/routes/intent.js';
 import { handleConnection } from '@/services/yjs-server.js';
+import { runMigrations } from '@/db/client.js';
 import type { AuthPayload } from '@/middleware/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -21,10 +23,10 @@ app.get('/health', (_req, res) => {
 
 app.use('/auth', authRoutes);
 app.use('/rooms', roomsRoutes);
+app.use('/intent', intentRoutes);
 
 const PORT = Number(process.env.PORT ?? 8080);
 const server = http.createServer(app);
-
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
@@ -55,11 +57,21 @@ server.on('upgrade', (req, socket, head) => {
         return;
     }
 
+    const lastSeqId = url.searchParams.has('last_seq_id')
+        ? Number(url.searchParams.get('last_seq_id'))
+        : undefined;
+
     wss.handleUpgrade(req, socket, head, (ws) => {
-        handleConnection(ws, roomId, payload.userId);
+        handleConnection(ws, roomId, payload.userId, lastSeqId).catch((err) => {
+            console.error('[ws] handleConnection error:', err);
+            ws.close();
+        });
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`[ligma-server] listening on :${PORT}`);
-});
+runMigrations()
+    .then(() => server.listen(PORT, () => console.log(`[ligma-server] listening on :${PORT}`)))
+    .catch((err) => {
+        console.error('[ligma-server] migration failed:', err);
+        process.exit(1);
+    });
