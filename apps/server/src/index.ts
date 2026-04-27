@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
+import authRoutes from '@/routes/auth.js';
 
 const app = express();
 app.use(cors());
@@ -11,8 +12,8 @@ app.get('/health', (_req, res) => {
     res.json({ ok: true, service: 'ligma-server', ts: Date.now() });
 });
 
+app.use('/auth', authRoutes);
 // TODO: mount routes
-// app.use('/auth', authRoutes);
 // app.use('/rooms', roomsRoutes);
 // app.use('/intent', intentRoutes);
 
