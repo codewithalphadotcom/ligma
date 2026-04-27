@@ -42,51 +42,51 @@
 
 ### Core (Mandatory)
 
-- [ ] Infinite canvas — pan, zoom, drag
-- [ ] Sticky notes (create, edit, move, resize, delete)
-- [ ] Freehand drawing strokes
-- [ ] Shape nodes (rect, circle, arrow)
-- [ ] Text block nodes
-- [ ] Multi-user real-time sync — no page refresh
-- [ ] Cursor presence — labelled, coloured, smooth
-- [ ] Y.js CRDT — proper merge, not last-write-wins
-- [ ] Node-level RBAC — Lead / Contributor / Viewer per node
-- [ ] RBAC enforced server-side (WebSocket mutation validation)
-- [ ] AI intent extraction → classifies: action item / decision / open question / reference
+- [x] Infinite canvas — pan, zoom, drag
+- [x] Sticky notes (create, edit, move, resize, delete)
+- [x] Freehand drawing strokes
+- [x] Shape nodes (rect, circle, arrow)
+- [x] Text block nodes
+- [x] Multi-user real-time sync — no page refresh
+- [x] Cursor presence — labelled, coloured, smooth
+- [x] Y.js CRDT — proper merge, not last-write-wins
+- [x] Node-level RBAC — Lead / Contributor / Viewer per node
+- [x] RBAC enforced server-side (WebSocket mutation validation)
+- [x] AI intent extraction → classifies: action item / decision / open question / reference
 - [ ] Action items auto-appear in Task Board (author + timestamp + canvas link)
 - [ ] Task Board — live for all users, no reload
 - [ ] Tasks reference the source node by `nodeId` only — text is read live from the node (no duplication, per spec)
 - [ ] Clicking a task scrolls canvas to originating node
-- [ ] Comments on locked nodes — Viewers/Contributors can comment on Lead-locked nodes (per spec: "contributors can still comment")
-- [ ] Append-only event log — every mutation stored as immutable event
+- [x] Comments on locked nodes — Viewers/Contributors can comment on Lead-locked nodes (per spec: "contributors can still comment")
+- [x] Append-only event log — every mutation stored as immutable event
 - [ ] Event log sidebar — viewable by users
-- [ ] WebSocket delta broadcasting (not full state)
-- [ ] Reconnect replay — client gets only missed events since last seq_id
-- [ ] Deploy on Render
+- [x] WebSocket delta broadcasting (not full state)
+- [x] Reconnect replay — client gets only missed events since last seq_id
+- [x] Deploy on Render (config done, needs actual deploy)
 
 ### Landing Page (Extra — add polish)
 
-- [ ] Hero section — LIGMA tagline + CTA
+- [~] Hero section — LIGMA tagline + CTA (basic page exists, needs full hero design)
 - [ ] Feature cards (Canvas / Task Board / Real-time / AI)
-- [ ] Live demo room button — creates a guest session
+- [x] Live demo room button — creates a guest session
 - [ ] How it works — 3-step visual
 - [ ] Tech stack badges
 
 ### Auth & Room Flow
 
-- [ ] Signup / Login (JWT)
-- [ ] Create room → get shareable URL `/room/[roomId]`
-- [ ] Join room via URL
-- [ ] Role assignment in room (Lead sets roles)
+- [x] Signup / Login (JWT) — API done, UI pages pending
+- [x] Create room → get shareable URL `/room/[roomId]`
+- [x] Join room via URL
+- [x] Role assignment in room (Lead sets roles)
 - [ ] Guest mode (anonymous cursor, read+comment only)
 
 ### Bonus Features (pick ONE to polish fully — 8pts)
 
 **Recommended: Time-Travel Replay** (easiest to implement given event-sourced arch)
 
-- [ ] Scrub timeline slider at bottom of canvas
-- [ ] Replays event log forward/backward
-- [ ] Each event step highlights affected node
+- [x] Scrub timeline slider at bottom of canvas
+- [x] Replays event log forward/backward
+- [x] Each event step highlights affected node
 
 **Alternative: AI Summary Export**
 
@@ -140,18 +140,18 @@
 
 | #   | Feature                                                                                                                   | Time Budget | Status     |
 | --- | ------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------- |
-| B1  | Project scaffold — Express + ws + PostgreSQL connection                                                                  | 0–1h       | ⏳ Pending |
-| B2  | DB schema — users, rooms, room_members, events, tasks                                                                    | 1–2h       | ⏳ Pending |
-| B3  | Auth REST API — POST /auth/signup, /auth/login (JWT)                                                                     | 2–4h       | ⏳ Pending |
-| B4  | Room REST API — POST /rooms, GET /rooms/:id, PATCH /rooms/:id/members                                                    | 4–5h       | ⏳ Pending |
-| B5  | y-websocket server — room-namespaced Y.Doc, auth token validation on connect                                             | 5–8h       | ⏳ Pending |
-| B6  | Append-only event log — every Y.Doc update triggers INSERT into `events` table with seq_id, roomId, payload, timestamp | 8–11h      | ⏳ Pending |
-| B7  | Reconnection replay — on WS connect, client sends `last_seq_id`, server sends all events since                         | 11–13h     | ⏳ Pending |
-| B8  | Server-side RBAC middleware — intercept WS mutations, check node ACL, reject if Viewer tries to mutate                   | 13–16h     | ⏳ Pending |
-| B9  | Tasks REST API — GET /rooms/:id/tasks (for initial load)                                                                 | 16–17h     | ⏳ Pending |
-| B10 | AI intent endpoint — POST /intent { text } → returns classification + confidence                                        | 17–19h     | ⏳ Pending |
-| B11 | Delta broadcasting optimisation — send Y.js update bytes (binary delta), not full doc                                    | 19–20h     | ⏳ Pending |
-| B12 | Render deployment — render.yaml, env vars, DB migrations on deploy                                                       | 20–22h     | ⏳ Pending |
+| B1  | Project scaffold — Express + ws + PostgreSQL connection                                                                  | 0–1h       | ✅ Done    |
+| B2  | DB schema — users, rooms, room_members, events, tasks                                                                    | 1–2h       | ✅ Done    |
+| B3  | Auth REST API — POST /auth/signup, /auth/login (JWT)                                                                     | 2–4h       | ✅ Done    |
+| B4  | Room REST API — POST /rooms, GET /rooms/:id, PATCH /rooms/:id/members                                                    | 4–5h       | ✅ Done    |
+| B5  | y-websocket server — room-namespaced Y.Doc, auth token validation on connect                                             | 5–8h       | ✅ Done    |
+| B6  | Append-only event log — every Y.Doc update triggers INSERT into `events` table with seq_id, roomId, payload, timestamp | 8–11h      | ✅ Done    |
+| B7  | Reconnection replay — on WS connect, client sends `last_seq_id`, server sends all events since                         | 11–13h     | ✅ Done    |
+| B8  | Server-side RBAC middleware — intercept WS mutations, check node ACL, reject if Viewer tries to mutate                   | 13–16h     | ✅ Done    |
+| B9  | Tasks REST API — GET /rooms/:id/tasks (for initial load)                                                                 | 16–17h     | ✅ Done    |
+| B10 | AI intent endpoint — POST /intent { text } → returns classification + confidence                                        | 17–19h     | ✅ Done    |
+| B11 | Delta broadcasting optimisation — send Y.js update bytes (binary delta), not full doc                                    | 19–20h     | ✅ Done    |
+| B12 | Render deployment — render.yaml, env vars, DB migrations on deploy                                                       | 20–22h     | ✅ Done    |
 | B13 | WebSocket stress test + reconnection manual test                                                                          | 22–24h     | ⏳ Pending |
 
 #### Key Technical Decisions (B owns these)
@@ -181,20 +181,20 @@
 
 #### Deliverables
 
-| #   | Feature                                                                                                                                                  | Time Budget | Status                          |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------- |
-| C1  | Next.js project scaffold + Tailwind + shadcn/ui setup                                                                                                    | 0–1h       | ✅ Done                         |
-| C2  | Landing page — hero, features, CTA, how-it-works                                                                                                        | 1–4h       | ⏳ Pending                      |
-| C3  | Auth pages — /login, /signup with JWT storage                                                                                                           | 4–6h       | ⏳ Pending                      |
-| C4  | Room creation + join flow — /dashboard, /room/[roomId] shell                                                                                            | 6–8h       | 🟡 Partial (room shell stubbed) |
-| C5  | Main workspace layout — canvas area (left) + task board panel (right) + event log sidebar                                                               | 8–10h      | ⏳ Pending                      |
-| C6  | Task Board component — live list, author chip, timestamp, "jump to node" button                                                                         | 10–13h     | ⏳ Pending                      |
-| C7  | Task Board real-time sync — subscribe to Y.js shared array of tasks, updates propagate automatically                                                    | 13–15h     | ⏳ Pending                      |
-| C8  | Event Log sidebar — scrollable, reverse chronological, event type badges                                                                                | 15–17h     | ⏳ Pending                      |
-| C9  | AI intent pipeline integration — on node text change debounce 1.5s → call /intent → update node classification tag → push action items to task board | 17–19h     | ⏳ Pending                      |
-| C10 | Role management UI — Lead can open node context menu → set per-node role                                                                               | 19–21h     | ⏳ Pending                      |
-| C11 | AI Summary Export panel (bonus) — if time permits                                                                                                       | 21–23h     | ⏳ Pending                      |
-| C12 | README.md — architecture diagram (Mermaid), CRDT explanation, event-sourcing explanation, setup instructions                                            | 23–24h     | ⏳ Pending                      |
+| #   | Feature                                                                                                                                                  | Time Budget | Status                                        |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------- |
+| C1  | Next.js project scaffold + Tailwind + shadcn/ui setup                                                                                                    | 0–1h       | ✅ Done                                        |
+| C2  | Landing page — hero, features, CTA, how-it-works                                                                                                        | 1–4h       | 🟡 Partial (basic page exists, needs full UI) |
+| C3  | Auth pages — /login, /signup with JWT storage                                                                                                           | 4–6h       | ⏳ Pending                                    |
+| C4  | Room creation + join flow — /dashboard, /room/[roomId] shell                                                                                            | 6–8h       | 🟡 Partial (room shell exists, no dashboard)  |
+| C5  | Main workspace layout — canvas area (left) + task board panel (right) + event log sidebar                                                               | 8–10h      | ⏳ Pending                                    |
+| C6  | Task Board component — live list, author chip, timestamp, "jump to node" button                                                                         | 10–13h     | ⏳ Pending                                    |
+| C7  | Task Board real-time sync — subscribe to Y.js shared array of tasks, updates propagate automatically                                                    | 13–15h     | ⏳ Pending                                    |
+| C8  | Event Log sidebar — scrollable, reverse chronological, event type badges                                                                                | 15–17h     | ⏳ Pending                                    |
+| C9  | AI intent pipeline integration — on node text change debounce 1.5s → call /intent → update node classification tag → push action items to task board | 17–19h     | ⏳ Pending                                    |
+| C10 | Role management UI — Lead can open node context menu → set per-node role                                                                               | 19–21h     | ⏳ Pending                                    |
+| C11 | AI Summary Export panel (bonus) — if time permits                                                                                                       | 21–23h     | ⏳ Pending                                    |
+| C12 | README.md — architecture diagram (Mermaid), CRDT explanation, event-sourcing explanation, setup instructions                                            | 23–24h     | ⏳ Pending                                    |
 
 #### Key Technical Decisions (C owns these)
 
