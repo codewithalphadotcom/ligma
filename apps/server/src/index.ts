@@ -2,8 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
+import jwt from 'jsonwebtoken';
 import authRoutes from '@/routes/auth.js';
 import roomsRoutes from '@/routes/rooms.js';
+import { handleConnection } from '@/services/yjs-server.js';
+import type { AuthPayload } from '@/middleware/auth.js';
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
 
 const app = express();
 app.use(cors());
@@ -22,15 +28,36 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
-    // TODO: validate JWT token from query, route to room handler
-    wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
-    });
-});
+    const url = new URL(req.url ?? '', `http://${req.headers.host}`);
+    const match = url.pathname.match(/^\/room\/([^/]+)$/);
 
-wss.on('connection', (ws) => {
-    // TODO: y-websocket setupWSConnection per room, RBAC enforcement, event log writes
-    ws.on('message', () => { /* placeholder */ });
+    if (!match) {
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+        socket.destroy();
+        return;
+    }
+
+    const roomId = match[1];
+    const token = url.searchParams.get('token');
+
+    if (!token) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+    }
+
+    let payload: AuthPayload;
+    try {
+        payload = jwt.verify(token, JWT_SECRET as string) as AuthPayload;
+    } catch {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+        handleConnection(ws, roomId, payload.userId);
+    });
 });
 
 server.listen(PORT, () => {
