@@ -1,8 +1,8 @@
 {
     "compilerOptions": {
         "target": "ESNext",
-        "module": "ESNext",
-        "moduleResolution": "Bundler",
+        "module": "esnext",
+        "moduleResolution": "bundler",
         "lib": [
             "ESNext"
         ],
@@ -14,14 +14,12 @@
         "esModuleInterop": true,
         "skipLibCheck": true,
         "resolveJsonModule": true,
-        "allowImportingTsExtensions": false,
+        "allowImportingTsExtensions": true,
         "noEmit": true,
-        "verbatimModuleSyntax": false,
         "forceConsistentCasingInFileNames": true,
-        "baseUrl": ".",
         "paths": {
             "@/*": [
-                "src/*"
+                "./src/*"
             ]
         }
     },
