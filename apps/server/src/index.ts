@@ -3,6 +3,7 @@ import cors from 'cors';
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import authRoutes from '@/routes/auth.js';
+import roomsRoutes from '@/routes/rooms.js';
 
 const app = express();
 app.use(cors());
@@ -13,9 +14,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/auth', authRoutes);
-// TODO: mount routes
-// app.use('/rooms', roomsRoutes);
-// app.use('/intent', intentRoutes);
+app.use('/rooms', roomsRoutes);
 
 const PORT = Number(process.env.PORT ?? 8080);
 const server = http.createServer(app);
