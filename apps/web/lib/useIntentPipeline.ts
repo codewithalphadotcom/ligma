@@ -25,6 +25,10 @@ interface TaskData {
 export function useIntentPipeline(room: RoomHandle | null, authorId: string, authorName: string) {
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const processing = useRef<Set<string>>(new Set());
+  // Tracks the last text we classified per node so we don't re-call Groq
+  // on every observeDeep tick (which fires when *we* write 'classification'
+  // back to the node, otherwise causing an infinite reclassification loop).
+  const lastClassifiedText = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!room) return;
@@ -37,18 +41,35 @@ export function useIntentPipeline(room: RoomHandle | null, authorId: string, aut
       if (!node) return;
 
       const raw = node.get('content');
-      const text = typeof raw === 'string' ? raw.trim() : '';
+      // content is stored as Y.Text (CRDT), not a plain string
+      const text = (raw && typeof (raw as { toString(): string }).toString === 'function'
+        ? (raw as { toString(): string }).toString()
+        : String(raw ?? '')
+      ).trim();
       if (text.length < 3) return;
 
+      // Skip if we already classified this exact text for this node
+      if (lastClassifiedText.current.get(nodeId) === text) return;
+
       processing.current.add(nodeId);
+      // Mark as classified BEFORE the API call so concurrent observeDeep
+      // ticks (caused by our own writes) don't queue another request.
+      lastClassifiedText.current.set(nodeId, text);
+      console.log('[intent] classifying node', nodeId, '->', JSON.stringify(text.slice(0, 60)));
       try {
-        const { label } = await api.classifyIntent(text);
+        const { label, confidence } = await api.classifyIntent(text);
+        console.log('[intent] result', { label, confidence });
+
+        // Skip low-confidence results so we don't spam the canvas with
+        // dubious badges or false-positive tasks. The keyword fallback
+        // returns 0.5–0.6, Groq typically returns >=0.7 on real text.
+        if (typeof confidence === 'number' && confidence < 0.55) return;
 
         // Normalise label → NodeClassification value
         const classification =
           label === 'action item' ? 'action-item' :
-          label === 'open question' ? 'open-question' :
-          label as 'decision' | 'reference';
+            label === 'open question' ? 'open-question' :
+              label as 'decision' | 'reference';
 
         room.doc.transact(() => {
           node.set('classification', classification);
@@ -70,8 +91,8 @@ export function useIntentPipeline(room: RoomHandle | null, authorId: string, aut
             room.tasks.push([task]);
           }, 'task_created');
         }
-      } catch {
-        // intent API unavailable — silently skip
+      } catch (err) {
+        console.error('[intent] classify failed for', nodeId, err);
       } finally {
         processing.current.delete(nodeId);
       }
@@ -84,6 +105,17 @@ export function useIntentPipeline(room: RoomHandle | null, authorId: string, aut
         // Only classify text-bearing nodes (sticky + text block)
         if (type !== 'sticky' && type !== 'text') return;
 
+        // Cheap pre-check: skip nodes whose text we already classified.
+        // This avoids resetting the debounce timer on every observeDeep
+        // tick triggered by our own classification/taskId writes.
+        const raw = node.get('content');
+        const text = (raw && typeof (raw as { toString(): string }).toString === 'function'
+          ? (raw as { toString(): string }).toString()
+          : String(raw ?? '')
+        ).trim();
+        if (text.length < 3) return;
+        if (lastClassifiedText.current.get(nodeId) === text) return;
+
         const existing = timers.current.get(nodeId);
         if (existing) clearTimeout(existing);
         const t = setTimeout(() => {
@@ -93,6 +125,19 @@ export function useIntentPipeline(room: RoomHandle | null, authorId: string, aut
         timers.current.set(nodeId, t);
       });
     }
+
+    // Seed the cache on mount so existing classified nodes (e.g. from a
+    // page reload of a populated room) don't trigger a fresh Groq call.
+    room.nodes.forEach((node, nodeId) => {
+      if (node.get('classification')) {
+        const raw = node.get('content');
+        const text = (raw && typeof (raw as { toString(): string }).toString === 'function'
+          ? (raw as { toString(): string }).toString()
+          : String(raw ?? '')
+        ).trim();
+        if (text) lastClassifiedText.current.set(nodeId, text);
+      }
+    });
 
     room.nodes.observeDeep(onNodesChange);
     return () => {
