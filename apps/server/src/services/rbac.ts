@@ -5,7 +5,18 @@ import { rooms, roomMembers } from '@/db/schema.js';
 export type RoomRole = 'lead' | 'contributor' | 'viewer';
 export type NodeAcl = 'lead-only' | 'contributor+' | 'all';
 
+// Postgres `uuid` columns reject non-UUID strings with `22P02`
+// (`invalid input syntax for type uuid`). Ephemeral rooms (e.g. `/room/demo`)
+// and guests can produce non-UUID identifiers; guard at the service layer so
+// no caller can crash the connection by passing a slug or empty string.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(value: string | undefined | null): value is string {
+  return typeof value === 'string' && UUID_RE.test(value);
+}
+
 export async function getUserRoomRole(userId: string, roomId: string): Promise<RoomRole | null> {
+  if (!isUuid(userId) || !isUuid(roomId)) return null;
   const [row] = await db
     .select({ role: roomMembers.role })
     .from(roomMembers)
@@ -29,6 +40,7 @@ export async function ensureRoomMembership(
   roomId: string,
   defaultRole: RoomRole = 'contributor',
 ): Promise<RoomRole | null> {
+  if (!isUuid(userId) || !isUuid(roomId)) return null;
   const [room] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, roomId)).limit(1);
   if (!room) return null;
 
