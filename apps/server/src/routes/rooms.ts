@@ -1,6 +1,10 @@
 import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
-import { query } from '@/db/client.js';
+import { and, asc, desc, eq } from 'drizzle-orm';
+import { db } from '@/db/index.js';
+import { rooms, roomMembers, tasks, users } from '@/db/schema.js';
 import auth from '@/middleware/auth.js';
+import { ensureRoomMembership } from '@/services/rbac.js';
+import { broadcastRoleChange } from '@/services/yjs-server.js';
 
 type AsyncFn = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
 const asyncHandler = (fn: AsyncFn): RequestHandler =>
@@ -9,6 +13,19 @@ const asyncHandler = (fn: AsyncFn): RequestHandler =>
 const router = Router();
 router.use(auth);
 
+// UUID format guard. Routes that pass `:id` straight into Postgres `uuid`
+// columns crash if given non-UUID strings (e.g. `demo` from the landing
+// page or share-link slugs). Reject those with a clean 404 so the client
+// can fall back to the ephemeral / public-room code path.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const requireUuidId: RequestHandler = (req, res, next) => {
+  if (!UUID_RE.test(req.params.id ?? '')) {
+    res.status(404).json({ error: 'room not found' });
+    return;
+  }
+  next();
+};
+
 router.post('/', asyncHandler(async (req, res) => {
   const { name } = req.body;
   if (!name || typeof name !== 'string') {
@@ -16,71 +33,122 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   const ownerId = req.user!.userId;
-  const roomResult = await query(
-    'INSERT INTO rooms (name, owner_id) VALUES ($1, $2) RETURNING id, name, owner_id, created_at',
-    [name, ownerId],
-  );
-  const room = roomResult.rows[0];
+  const [room] = await db.insert(rooms).values({ name, ownerId }).returning();
+  if (!room) throw new Error('insert returned no row');
 
-  await query(
-    'INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, $3)',
-    [room.id, ownerId, 'lead'],
-  );
+  await db.insert(roomMembers).values({ roomId: room.id, userId: ownerId, role: 'lead' });
 
   return res.status(201).json({
-    room: { id: room.id, name: room.name, ownerId: room.owner_id, createdAt: room.created_at },
+    room: { id: room.id, name: room.name, ownerId: room.ownerId, createdAt: room.createdAt },
   });
 }));
 
-router.get('/:id', asyncHandler(async (req, res) => {
-  const roomResult = await query(
-    'SELECT id, name, owner_id, created_at FROM rooms WHERE id = $1',
-    [req.params.id],
-  );
-  if (!roomResult.rows[0]) return res.status(404).json({ error: 'room not found' });
-  const r = roomResult.rows[0];
+router.get('/:id', requireUuidId, asyncHandler(async (req, res) => {
+  const roomId = req.params.id!;
+  const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+  if (!room) return res.status(404).json({ error: 'room not found' });
 
-  const membersResult = await query(
-    `SELECT u.id, u.name, u.email, u.color, rm.role
-     FROM room_members rm
-     JOIN users u ON u.id = rm.user_id
-     WHERE rm.room_id = $1`,
-    [req.params.id],
-  );
+  const members = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      color: users.color,
+      role: roomMembers.role,
+    })
+    .from(roomMembers)
+    .innerJoin(users, eq(users.id, roomMembers.userId))
+    .where(eq(roomMembers.roomId, roomId));
 
   return res.status(200).json({
-    room: { id: r.id, name: r.name, ownerId: r.owner_id, createdAt: r.created_at },
-    members: membersResult.rows,
+    room: { id: room.id, name: room.name, ownerId: room.ownerId, createdAt: room.createdAt },
+    members,
   });
 }));
 
-router.patch('/:id/members', asyncHandler(async (req, res) => {
-  const callerCheck = await query(
-    'SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2',
-    [req.params.id, req.user!.userId],
-  );
-  if (callerCheck.rows[0]?.role !== 'lead') {
+router.patch('/:id/members', requireUuidId, asyncHandler(async (req, res) => {
+  const roomId = req.params.id!;
+  const callerId = req.user!.userId;
+
+  const [caller] = await db
+    .select({ role: roomMembers.role })
+    .from(roomMembers)
+    .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, callerId)))
+    .limit(1);
+  if (caller?.role !== 'lead') {
     return res.status(403).json({ error: 'only leads can manage members' });
   }
 
   const { userId, role } = req.body;
   if (!userId || !role) return res.status(400).json({ error: 'userId and role are required' });
+  if (role !== 'lead' && role !== 'contributor' && role !== 'viewer') {
+    return res.status(400).json({ error: 'invalid role' });
+  }
 
-  await query(
-    `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, $3)
-     ON CONFLICT (room_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
-    [req.params.id, userId, role],
-  );
+  await db
+    .insert(roomMembers)
+    .values({ roomId, userId, role })
+    .onConflictDoUpdate({
+      target: [roomMembers.roomId, roomMembers.userId],
+      set: { role },
+    });
+
+  // Propagate to every connected client in the room (and invalidate
+  // server-side role caches) so live demotion takes effect without a
+  // reconnect — even when the role change came in via REST instead of
+  // through the in-app Members panel.
+  broadcastRoleChange(roomId);
 
   return res.status(200).json({ ok: true });
 }));
 
-router.get('/:id/tasks', asyncHandler(async (req, res) => {
-  const result = await query(
-    'SELECT * FROM tasks WHERE room_id = $1 ORDER BY created_at ASC',
-    [req.params.id],
-  );
-  return res.status(200).json({ tasks: result.rows });
+router.get('/:id/tasks', requireUuidId, asyncHandler(async (req, res) => {
+  const roomId = req.params.id!;
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.roomId, roomId))
+    .orderBy(asc(tasks.createdAt));
+  return res.status(200).json({ tasks: rows });
+}));
+
+/**
+ * GET /rooms — list rooms the caller is a member of (newest first).
+ */
+router.get('/', asyncHandler(async (req, res) => {
+  const userId = req.user!.userId;
+  const rows = await db
+    .select({
+      id: rooms.id,
+      name: rooms.name,
+      ownerId: rooms.ownerId,
+      createdAt: rooms.createdAt,
+      role: roomMembers.role,
+    })
+    .from(rooms)
+    .innerJoin(roomMembers, eq(roomMembers.roomId, rooms.id))
+    .where(eq(roomMembers.userId, userId))
+    .orderBy(desc(rooms.createdAt));
+  return res.status(200).json({ rooms: rows });
+}));
+
+/**
+ * POST /rooms/:id/join — idempotently add the caller as a contributor.
+ * Returns the room metadata + the resolved role. Used by share-link joins.
+ */
+router.post('/:id/join', requireUuidId, asyncHandler(async (req, res) => {
+  const userId = req.user!.userId;
+  const roomId = req.params.id!;
+  const role = await ensureRoomMembership(userId, roomId, 'contributor');
+  if (!role) return res.status(404).json({ error: 'room not found' });
+
+  const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+  if (!room) return res.status(404).json({ error: 'room not found' });
+
+  return res.status(200).json({
+    room: { id: room.id, name: room.name, ownerId: room.ownerId, createdAt: room.createdAt },
+    role,
+  });
 }));
 
 export default router;
