@@ -114,6 +114,14 @@ function ReplayNodeLayerImpl({ nodes }: ReplayNodeLayerProps) {
                         return <StickyView key={n.id} node={n} />;
                     case 'rect':
                     case 'circle':
+                    case 'triangle':
+                    case 'diamond':
+                    case 'hexagon':
+                    case 'pentagon':
+                    case 'star':
+                    case 'parallelogram':
+                    case 'line':
+                    case 'arrow':
                         return <ShapeView key={n.id} node={n} />;
                     case 'text':
                         return <TextView key={n.id} node={n} />;

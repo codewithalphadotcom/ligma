@@ -42,6 +42,14 @@ export function CanvasNodeLayer({
                         );
                     case 'rect':
                     case 'circle':
+                    case 'triangle':
+                    case 'diamond':
+                    case 'hexagon':
+                    case 'pentagon':
+                    case 'star':
+                    case 'parallelogram':
+                    case 'line':
+                    case 'arrow':
                         return (
                             <ShapeNode
                                 key={n.id}
