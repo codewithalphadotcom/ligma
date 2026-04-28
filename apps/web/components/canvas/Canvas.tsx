@@ -46,6 +46,7 @@ import {
     type Tool,
     type Viewport,
 } from '@/lib/types';
+import { getShapePoints } from '@/lib/shape-geometry';
 import { useCanvasUI } from '@/lib/canvas-store';
 import {
     appendStrokePoint,
@@ -53,15 +54,21 @@ import {
     createShapeNode,
     createStickyNode,
     createTextBlockNode,
+    deleteNode,
     deleteNodes,
+    erasePixelsAt,
 } from './node-ops';
 import { canEditNode } from '@/lib/acl';
 import { CanvasNodeLayer } from './CanvasNodeLayer';
 import { ReplayNodeLayer } from './ReplayNodeLayer';
 import { Toolbar } from './Toolbar';
+import { ColorPalette } from './ColorPalette';
 import { CursorLayer } from './CursorLayer';
-import { CommentPopover } from './CommentPopover';
-import { TimelineReplay } from './TimelineReplay';
+import { ShareButton } from './ShareButton';
+import { PrivateRoomsButton } from './PrivateRoomsButton';
+import { MembersSidebar } from './MembersSidebar';
+import { ZoomDock } from './ZoomDock';
+import { ClassificationLegend } from './ClassificationLegend';
 import { useAwareness } from './useAwareness';
 import { useEventLog } from './useEventLog';
 import { useReplaySnapshot } from './useReplaySnapshot';
@@ -74,15 +81,23 @@ interface Identity {
 }
 
 interface CanvasProps {
+    roomId: string;
     yNodes: Y.Map<Y.Map<unknown>>;
     nodes: NodeSnapshot[];
     identity: Identity;
     provider: WebsocketProvider;
+    /** Room-level metadata Y.Map (used to broadcast role-change pings). */
+    meta: Y.Map<unknown>;
 }
 
 const ZOOM_STEP = 1.1;
 const ZOOM_WHEEL_SENSITIVITY = 0.0015;
 const PAN_WHEEL_SENSITIVITY = 1;
+
+/** Screen-space radius of the pixel-eraser's effect zone. World-space
+ *  radius is derived by dividing by the current zoom so the eraser feels
+ *  like a constant-size brush regardless of zoom level. */
+const PIXEL_ERASER_RADIUS_SCREEN = 14;
 
 interface MarqueeRect {
     /** All four in screen-space client coords. */
@@ -94,7 +109,7 @@ interface MarqueeRect {
     additive: boolean;
 }
 
-export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
+export function Canvas({ roomId, yNodes, nodes, identity, provider, meta }: CanvasProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
     const [spaceHeld, setSpaceHeld] = useState(false);
@@ -103,6 +118,8 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
 
     const tool = useCanvasUI((s) => s.tool);
     const setTool = useCanvasUI((s) => s.setTool);
+    const currentColor = useCanvasUI((s) => s.currentColor);
+    const fillMode = useCanvasUI((s) => s.fillMode);
     const selection = useCanvasUI((s) => s.selection);
     const selectOnly = useCanvasUI((s) => s.selectOnly);
     const selectMany = useCanvasUI((s) => s.selectMany);
@@ -119,6 +136,10 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
     spaceHeldRef.current = spaceHeld;
     const toolRef = useRef(tool);
     toolRef.current = tool;
+    const currentColorRef = useRef(currentColor);
+    currentColorRef.current = currentColor;
+    const fillModeRef = useRef(fillMode);
+    fillModeRef.current = fillMode;
     const isReplayingRef = useRef(isReplaying);
     isReplayingRef.current = isReplaying;
     const nodesRef = useRef(nodes);
@@ -127,6 +148,65 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
     selectionRef.current = selection;
 
     const presence = useAwareness(provider);
+
+    // ---- Y.UndoManager bound to the room's nodes map ----
+    // We tag every local transaction with a string origin (see node-ops.ts);
+    // by default UndoManager only tracks transactions with `null` origin, so
+    // none of our edits would be undoable. Pass an explicit `trackedOrigins`
+    // set listing every local origin we want on the undo stack.
+    //
+    // Stroke point appends are intentionally NOT tracked individually —
+    // captureTimeout batches the parent stroke into a single step, and we
+    // skip the noisy per-point origin so undo collapses a stroke as one
+    // unit. The initial `begin-stroke` IS tracked (so undo on a finished
+    // stroke removes it).
+    const [undoManager, setUndoManager] = useState<Y.UndoManager | null>(null);
+    useEffect(() => {
+        const um = new Y.UndoManager(yNodes, {
+            captureTimeout: 400,
+            trackedOrigins: new Set<string | null>([
+                null,
+                'create-sticky',
+                'create-shape',
+                'create-text-block',
+                'begin-stroke',
+                'append-stroke-point',
+                'move-node',
+                'resize-node',
+                'recolor-node',
+                'recolor-nodes',
+                'delete-node',
+                'delete-nodes',
+                'set-node-acl',
+            ]),
+        });
+        setUndoManager(um);
+        return () => {
+            um.destroy();
+            setUndoManager(null);
+        };
+    }, [yNodes]);
+
+    // ---- Zoom helpers (also wired to ZoomDock) ----
+    const zoomBy = useCallback((factor: number) => {
+        const el = containerRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+        const v = viewportRef.current;
+        const nextZoom = clamp(v.zoom * factor, ZOOM_MIN, ZOOM_MAX);
+        const worldX = (cx - v.x) / v.zoom;
+        const worldY = (cy - v.y) / v.zoom;
+        setViewport({
+            x: cx - worldX * nextZoom,
+            y: cy - worldY * nextZoom,
+            zoom: nextZoom,
+        });
+    }, []);
+    const zoomIn = useCallback(() => zoomBy(ZOOM_STEP), [zoomBy]);
+    const zoomOut = useCallback(() => zoomBy(1 / ZOOM_STEP), [zoomBy]);
+    const resetZoom = useCallback(() => setViewport(DEFAULT_VIEWPORT), []);
 
     // ---- Event log + replay derivation (A11) ----
     const eventLog = useEventLog(provider);
@@ -180,6 +260,39 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
         };
     }, [provider, identity.authorId, identity.authorName, identity.color]);
 
+    // ---- Jump-to-node (C7): centre the viewport on a node by id ----
+    // Triggered by `window.dispatchEvent(new CustomEvent('ligma:jump-to-node',
+    // { detail: { nodeId } }))` — currently fired by the TaskBoard "Jump"
+    // button. We translate the node's world-space bounds into the screen
+    // coords needed to centre it inside the canvas container, preserving the
+    // current zoom level. The node is also added to the selection so the
+    // user immediately sees what was targeted.
+    useEffect(() => {
+        function onJump(ev: Event) {
+            const detail = (ev as CustomEvent<{ nodeId?: string }>).detail;
+            const nodeId = detail?.nodeId;
+            if (!nodeId) return;
+            const target = nodesRef.current.find((n) => n.id === nodeId);
+            const el = containerRef.current;
+            if (!target || !el) return;
+
+            const rect = el.getBoundingClientRect();
+            const cx = rect.width / 2;
+            const cy = rect.height / 2;
+            const v = viewportRef.current;
+            const targetWorldX = target.x + target.w / 2;
+            const targetWorldY = target.y + target.h / 2;
+            setViewport({
+                x: cx - targetWorldX * v.zoom,
+                y: cy - targetWorldY * v.zoom,
+                zoom: v.zoom,
+            });
+            selectOnly(nodeId);
+        }
+        window.addEventListener('ligma:jump-to-node', onJump);
+        return () => window.removeEventListener('ligma:jump-to-node', onJump);
+    }, [selectOnly]);
+
     // ---- Wheel: pan or zoom ----
     useEffect(() => {
         const el = containerRef.current;
@@ -231,6 +344,15 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
                 setSpaceHeld(true);
                 return;
             }
+            // Cmd/Ctrl+A — select every node on the canvas. Lets the user
+            // grab the whole clutter and follow up with Delete.
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+                if (isReplayingRef.current) return;
+                e.preventDefault();
+                const ids = nodesRef.current.map((n) => n.id);
+                if (ids.length > 0) selectMany(ids);
+                return;
+            }
             if (e.key === 'Escape') {
                 e.preventDefault();
                 clearSelection();
@@ -256,35 +378,18 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
             }
             if (e.key === '+' || e.key === '=') {
                 e.preventDefault();
-                zoomAtCenter(ZOOM_STEP);
+                zoomIn();
             } else if (e.key === '-' || e.key === '_') {
                 e.preventDefault();
-                zoomAtCenter(1 / ZOOM_STEP);
+                zoomOut();
             } else if (e.key === '0') {
                 e.preventDefault();
-                setViewport(DEFAULT_VIEWPORT);
+                resetZoom();
             }
         }
 
         function onKeyUp(e: KeyboardEvent) {
             if (e.code === 'Space') setSpaceHeld(false);
-        }
-
-        function zoomAtCenter(factor: number) {
-            const el = containerRef.current;
-            if (!el) return;
-            const rect = el.getBoundingClientRect();
-            const cx = rect.width / 2;
-            const cy = rect.height / 2;
-            const v = viewportRef.current;
-            const nextZoom = clamp(v.zoom * factor, ZOOM_MIN, ZOOM_MAX);
-            const worldX = (cx - v.x) / v.zoom;
-            const worldY = (cy - v.y) / v.zoom;
-            setViewport({
-                x: cx - worldX * nextZoom,
-                y: cy - worldY * nextZoom,
-                zoom: nextZoom,
-            });
         }
 
         window.addEventListener('keydown', onKeyDown);
@@ -297,8 +402,12 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
         yNodes,
         identity.roomRole,
         clearSelection,
+        selectMany,
         setCommentOpen,
         setTool,
+        zoomIn,
+        zoomOut,
+        resetZoom,
     ]);
 
     // ---- Pointer interaction ----
@@ -318,23 +427,37 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
     const drawRef = useRef<{
         pointerId: number;
         strokeId: string;
-        rafScheduled: boolean;
-        pendingPoint: { x: number; y: number } | null;
+        lastPoint: { x: number; y: number } | null;
+    } | null>(null);
+
+    /** Active shape drag-to-create gesture. */
+    const shapeDraftRef = useRef<{
+        pointerId: number;
+        kind: import('@/lib/types').ShapeKind;
+        startWorldX: number;
+        startWorldY: number;
+    } | null>(null);
+    /** Live preview rect in WORLD coordinates (rendered inside the
+     *  pan/zoom transform so it lines up perfectly with the final shape). */
+    const [shapeDraft, setShapeDraft] = useState<{
+        kind: import('@/lib/types').ShapeKind;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+        color: string;
+        lineDir: import('@/lib/types').LineDir;
     } | null>(null);
 
     const marqueeRef = useRef<{
         pointerId: number;
     } | null>(null);
 
-    const flushDrawPoint = useCallback(() => {
-        const d = drawRef.current;
-        if (!d) return;
-        d.rafScheduled = false;
-        const p = d.pendingPoint;
-        if (!p) return;
-        appendStrokePoint(yNodes, d.strokeId, p);
-        d.pendingPoint = null;
-    }, [yNodes]);
+    /** Active pixel-eraser drag. */
+    const pixelEraseRef = useRef<{ pointerId: number } | null>(null);
+
+    /** Live screen-space cursor position for the pixel-eraser preview ring. */
+    const [eraserCursor, setEraserCursor] = useState<{ x: number; y: number } | null>(null);
 
     function placeNodeAt(worldX: number, worldY: number, currentTool: Tool) {
         switch (currentTool) {
@@ -343,22 +466,7 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
                     x: worldX - STICKY_DEFAULT_W / 2,
                     y: worldY - STICKY_DEFAULT_H / 2,
                     authorId: identity.authorId,
-                });
-                break;
-            case 'rect':
-                createShapeNode(yNodes, {
-                    shape: 'rect',
-                    x: worldX - SHAPE_DEFAULT_W / 2,
-                    y: worldY - SHAPE_DEFAULT_H / 2,
-                    authorId: identity.authorId,
-                });
-                break;
-            case 'circle':
-                createShapeNode(yNodes, {
-                    shape: 'circle',
-                    x: worldX - SHAPE_DEFAULT_W / 2,
-                    y: worldY - SHAPE_DEFAULT_W / 2, // circle is square
-                    authorId: identity.authorId,
+                    color: currentColorRef.current,
                 });
                 break;
             case 'text':
@@ -366,6 +474,7 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
                     x: worldX - TEXT_DEFAULT_W / 2,
                     y: worldY - TEXT_DEFAULT_H / 2,
                     authorId: identity.authorId,
+                    color: currentColorRef.current,
                 });
                 break;
             default:
@@ -408,6 +517,19 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
         // Replay mode disables ALL canvas-level edits.
         if (isReplayingRef.current) return;
 
+        // Ignore pointerdown events that originate from floating chrome
+        // (toolbar, zoom dock, share button, modals). Without this guard the
+        // canvas would call setPointerCapture and steal the corresponding
+        // pointerup from the button, so clicks would never fire.
+        // NB: lucide-react icons render <svg>, which is an SVGElement (NOT
+        // HTMLElement). Use Element so SVG/HTML targets both qualify.
+        if (
+            e.target instanceof Element &&
+            e.target.closest('[data-canvas-chrome]')
+        ) {
+            return;
+        }
+
         // Nodes call stopPropagation, so events that reach here are background.
         const middleButton = e.button === 1;
         const leftWithSpace = e.button === 0 && spaceHeldRef.current;
@@ -431,14 +553,24 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
         setCommentOpen(null);
 
         if (currentTool === 'select') {
-            if (e.shiftKey) {
-                // Marquee in additive mode.
-                startMarquee(e, sx, sy);
-                return;
-            }
-            // Plain empty-canvas click clears selection then pans.
-            if (selectionRef.current.size > 0) clearSelection();
-            startPan(e);
+            // Plain empty-canvas drag in Select mode = marquee selection.
+            // This matches Figma / Excalidraw / tldraw expectations and lets
+            // the user lasso piles of clutter quickly. Pan is still available
+            // via Space-drag and middle-mouse (handled above).
+            if (selectionRef.current.size > 0 && !e.shiftKey) clearSelection();
+            startMarquee(e, sx, sy);
+            return;
+        }
+
+        if (currentTool === 'eraser') {
+            // Empty-canvas click in eraser mode = no-op (nodes are deleted in
+            // the capture-phase handler before the click reaches here).
+            return;
+        }
+
+        if (currentTool === 'pixel-eraser') {
+            // The capture-phase handler already started the sweep — nothing
+            // more to do on the canvas-level pointerdown.
             return;
         }
 
@@ -447,21 +579,100 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
                 x: 0,
                 y: 0,
                 authorId: identity.authorId,
-                color: identity.color,
+                color: currentColorRef.current,
                 initial: { x: worldX, y: worldY },
             });
             drawRef.current = {
                 pointerId: e.pointerId,
                 strokeId,
-                rafScheduled: false,
-                pendingPoint: null,
+                lastPoint: { x: worldX, y: worldY },
             };
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
             return;
         }
 
-        // sticky / rect / circle / text → place
+        if (
+            currentTool === 'rect' ||
+            currentTool === 'circle' ||
+            currentTool === 'triangle' ||
+            currentTool === 'diamond' ||
+            currentTool === 'hexagon' ||
+            currentTool === 'pentagon' ||
+            currentTool === 'star' ||
+            currentTool === 'parallelogram' ||
+            currentTool === 'line' ||
+            currentTool === 'arrow'
+        ) {
+            shapeDraftRef.current = {
+                pointerId: e.pointerId,
+                kind: currentTool,
+                startWorldX: worldX,
+                startWorldY: worldY,
+            };
+            setShapeDraft({
+                kind: currentTool,
+                x: worldX,
+                y: worldY,
+                w: 0,
+                h: 0,
+                color: currentColorRef.current,
+                lineDir: 'tl-br',
+            });
+            (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+            return;
+        }
+
+        // sticky / text → place at click point
         placeNodeAt(worldX, worldY, currentTool);
+    }
+
+    /**
+     * Capture-phase listener: nodes call stopPropagation in their bubble-phase
+     * handlers, but capture fires on the way down so we still see them. When
+     * the eraser tool is active, a click on any node deletes that node.
+     */
+    function onPointerDownCapture(e: React.PointerEvent<HTMLDivElement>) {
+        if (isReplayingRef.current) return;
+        if (e.button !== 0) return;
+        const t = toolRef.current;
+        if (t !== 'eraser' && t !== 'pixel-eraser') return;
+        if (!(e.target instanceof HTMLElement || e.target instanceof SVGElement)) return;
+        // Don't erase chrome (toolbar etc.)
+        if (e.target.closest('[data-canvas-chrome]')) return;
+
+        if (t === 'pixel-eraser') {
+            // Start the pixel-erase sweep here in the capture phase so it
+            // works even when the down event lands on a stroke's SVG path
+            // (whose bubble-phase handler would otherwise call stopPropagation
+            // and prevent the canvas-level onPointerDown from running).
+            e.preventDefault();
+            e.stopPropagation();
+            const rect = (containerRef.current as HTMLDivElement).getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+            const world = screenToWorld(sx, sy);
+            pixelEraseRef.current = { pointerId: e.pointerId };
+            erasePixelsAt(
+                yNodes,
+                world,
+                PIXEL_ERASER_RADIUS_SCREEN / viewportRef.current.zoom,
+                identity.authorId,
+            );
+            try {
+                (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+            } catch {
+                /* ignore */
+            }
+            return;
+        }
+
+        // Object eraser: deletes whichever node the click landed on.
+        const nodeEl = e.target.closest('[data-node-id]');
+        const nodeId = nodeEl?.getAttribute('data-node-id');
+        if (!nodeId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        deleteNode(yNodes, nodeId);
     }
 
     function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -471,6 +682,24 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
         const sy = e.clientY - rect.top;
         const world = screenToWorld(sx, sy);
         provider.awareness.setLocalStateField('cursor', world);
+
+        // Update the eraser preview ring (only renders for pixel-eraser tool).
+        if (toolRef.current === 'pixel-eraser') {
+            setEraserCursor({ x: sx, y: sy });
+        } else if (eraserCursor !== null) {
+            setEraserCursor(null);
+        }
+
+        const pe = pixelEraseRef.current;
+        if (pe && pe.pointerId === e.pointerId) {
+            erasePixelsAt(
+                yNodes,
+                world,
+                PIXEL_ERASER_RADIUS_SCREEN / viewportRef.current.zoom,
+                identity.authorId,
+            );
+            return;
+        }
 
         const p = panRef.current;
         if (p && p.pointerId === e.pointerId) {
@@ -492,11 +721,52 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
 
         const d = drawRef.current;
         if (d && d.pointerId === e.pointerId) {
-            d.pendingPoint = world;
-            if (!d.rafScheduled) {
-                d.rafScheduled = true;
-                requestAnimationFrame(flushDrawPoint);
+            // Skip near-duplicate points to avoid Yjs spam at high event rates.
+            const last = d.lastPoint;
+            if (
+                !last ||
+                Math.abs(world.x - last.x) > 0.5 ||
+                Math.abs(world.y - last.y) > 0.5
+            ) {
+                appendStrokePoint(yNodes, d.strokeId, world);
+                d.lastPoint = world;
             }
+            return;
+        }
+
+        const sd = shapeDraftRef.current;
+        if (sd && sd.pointerId === e.pointerId) {
+            const dx = world.x - sd.startWorldX;
+            const dy = world.y - sd.startWorldY;
+            const minX = Math.min(sd.startWorldX, world.x);
+            const minY = Math.min(sd.startWorldY, world.y);
+            let w = Math.abs(dx);
+            let h = Math.abs(dy);
+            // Circles are constrained to a square so the bbox is unambiguous.
+            if (sd.kind === 'circle') {
+                const s = Math.max(w, h);
+                w = s;
+                h = s;
+            }
+            // For line / arrow, encode the actual drag direction so the
+            // committed node renders the diagonal that matches the user's
+            // cursor (start point stays fixed, end point follows mouse).
+            let lineDir: import('@/lib/types').LineDir = 'tl-br';
+            if (sd.kind === 'line' || sd.kind === 'arrow') {
+                if (dx >= 0 && dy >= 0) lineDir = 'tl-br';
+                else if (dx >= 0 && dy < 0) lineDir = 'bl-tr';
+                else if (dx < 0 && dy >= 0) lineDir = 'tr-bl';
+                else lineDir = 'br-tl';
+            }
+            setShapeDraft({
+                kind: sd.kind,
+                x: minX,
+                y: minY,
+                w,
+                h,
+                color: currentColorRef.current,
+                lineDir,
+            });
         }
     }
 
@@ -552,6 +822,17 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
     }
 
     function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+        const pe = pixelEraseRef.current;
+        if (pe && pe.pointerId === e.pointerId) {
+            try {
+                (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+            } catch {
+                /* ignore */
+            }
+            pixelEraseRef.current = null;
+            return;
+        }
+
         const p = panRef.current;
         if (p && p.pointerId === e.pointerId) {
             try {
@@ -590,16 +871,96 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
             } catch {
                 /* ignore */
             }
-            if (d.pendingPoint) {
-                appendStrokePoint(yNodes, d.strokeId, d.pendingPoint);
-            }
             drawRef.current = null;
+            return;
+        }
+
+        const sd = shapeDraftRef.current;
+        if (sd && sd.pointerId === e.pointerId) {
+            try {
+                (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+            } catch {
+                /* ignore */
+            }
+            shapeDraftRef.current = null;
+
+            const draft = shapeDraft;
+            setShapeDraft(null);
+
+            // Commit only if the user actually dragged a meaningful area;
+            // otherwise treat it as a click and place a default-sized shape.
+            const minDrag = 6;
+            const isLineKind = sd.kind === 'line' || sd.kind === 'arrow';
+
+            if (isLineKind) {
+                // For lines, commit if EITHER dimension exceeds minDrag — a
+                // perfectly horizontal or vertical line has h=0 or w=0 but is
+                // still a valid line. Pad the small axis to at least 2px so
+                // the bounding box is not degenerate.
+                const dragged =
+                    draft && (draft.w > minDrag || draft.h > minDrag);
+                let w: number;
+                let h: number;
+                let x: number;
+                let y: number;
+                if (dragged && draft) {
+                    w = Math.max(draft.w, 2);
+                    h = Math.max(draft.h, 2);
+                    x = draft.x;
+                    y = draft.y;
+                } else {
+                    // Click-to-place: default 120px horizontal line.
+                    w = 120;
+                    h = 2;
+                    x = sd.startWorldX - w / 2;
+                    y = sd.startWorldY - h / 2;
+                }
+                createShapeNode(yNodes, {
+                    shape: sd.kind,
+                    x,
+                    y,
+                    w,
+                    h,
+                    authorId: identity.authorId,
+                    color: currentColorRef.current,
+                    fill: fillModeRef.current,
+                    lineDir: draft?.lineDir ?? 'tl-br',
+                });
+                setTool('select');
+                return;
+            }
+
+            const w = draft && draft.w > minDrag ? draft.w : SHAPE_DEFAULT_W;
+            const h = draft && draft.h > minDrag
+                ? draft.h
+                : sd.kind === 'circle'
+                    ? SHAPE_DEFAULT_W
+                    : SHAPE_DEFAULT_H;
+            const x = draft && draft.w > minDrag
+                ? draft.x
+                : sd.startWorldX - w / 2;
+            const y = draft && draft.h > minDrag
+                ? draft.y
+                : sd.startWorldY - h / 2;
+
+            createShapeNode(yNodes, {
+                shape: sd.kind,
+                x,
+                y,
+                w,
+                h,
+                authorId: identity.authorId,
+                color: currentColorRef.current,
+                fill: fillModeRef.current,
+            });
+            setTool('select');
         }
     }
 
     function onPointerLeave() {
         // Clear cursor presence so peers don't see a stale ghost.
         provider.awareness.setLocalStateField('cursor', null);
+        if (eraserCursor !== null) setEraserCursor(null);
     }
 
     // Cursor styling reflects what the next pointer-down will do.
@@ -611,9 +972,11 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
                 ? 'cursor-crosshair'
                 : spaceHeld
                     ? 'cursor-grab'
-                    : tool === 'select'
-                        ? 'cursor-default'
-                        : 'cursor-crosshair';
+                    : tool === 'pixel-eraser'
+                        ? 'cursor-none'
+                        : tool === 'select'
+                            ? 'cursor-default'
+                            : 'cursor-crosshair';
 
     // Marquee overlay rect in screen coords.
     const marqueeStyle = marquee
@@ -628,18 +991,20 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
     return (
         <div
             ref={containerRef}
+            onPointerDownCapture={onPointerDownCapture}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
             onPointerLeave={onPointerLeave}
             className={cn(
-                'relative h-full w-full overflow-hidden bg-neutral-100 dark:bg-neutral-900',
+                'relative h-full w-full overflow-hidden',
                 cursorClass,
             )}
             style={{
+                background: '#0b0906',
                 backgroundImage:
-                    'radial-gradient(circle, rgba(0,0,0,0.18) 1px, transparent 1px)',
+                    'radial-gradient(circle, rgba(190,148,96,0.14) 1px, transparent 1px)',
                 backgroundSize: `${24 * viewport.zoom}px ${24 * viewport.zoom}px`,
                 backgroundPosition: `${viewport.x}px ${viewport.y}px`,
                 touchAction: 'none',
@@ -662,14 +1027,37 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
                         roomRole={identity.roomRole}
                     />
                 )}
+
+                {/* Live preview while drag-creating a shape. Lives inside the
+                 *  world container so it transforms with pan/zoom. */}
+                {shapeDraft && (
+                    <ShapeDraftPreview draft={shapeDraft} fillMode={fillMode} />
+                )}
             </div>
 
             {/* Marquee overlay (screen space). */}
             {marqueeStyle && (
                 <div
                     aria-hidden
-                    className="pointer-events-none absolute border border-blue-500 bg-blue-500/10"
-                    style={marqueeStyle}
+                    className="pointer-events-none absolute border bg-[rgba(190,148,96,0.10)]"
+                    style={{ ...marqueeStyle, borderColor: 'rgba(190,148,96,0.55)' }}
+                />
+            )}
+
+            {/* Pixel-eraser preview ring (screen space). */}
+            {tool === 'pixel-eraser' && eraserCursor && !isReplaying && (
+                <div
+                    aria-hidden
+                    className="pointer-events-none absolute rounded-full"
+                    style={{
+                        left: eraserCursor.x - PIXEL_ERASER_RADIUS_SCREEN,
+                        top: eraserCursor.y - PIXEL_ERASER_RADIUS_SCREEN,
+                        width: PIXEL_ERASER_RADIUS_SCREEN * 2,
+                        height: PIXEL_ERASER_RADIUS_SCREEN * 2,
+                        border: '1.5px solid rgba(237,228,208,0.85)',
+                        background: 'rgba(237,228,208,0.08)',
+                        boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
+                    }}
                 />
             )}
 
@@ -684,54 +1072,208 @@ export function Canvas({ yNodes, nodes, identity, provider }: CanvasProps) {
             {/* Remote cursors live in screen space so they stay normal-sized. */}
             <CursorLayer presence={presence} viewport={viewport} />
 
-            {/* Floating tool picker. Hidden in replay because tools are inert. */}
-            {!isReplaying && <Toolbar />}
+            {/* Top-center: minimalist tool picker. Hidden while replaying
+                or for view-only members (viewers can't create nodes anyway,
+                so showing them the toolbar would just be misleading). */}
+            {!isReplaying && identity.roomRole !== 'viewer' && <Toolbar />}
 
-            {/* Comment thread popover (screen space, anchored to a node). */}
+            {/* Below toolbar: color picker. Same viewer/replay rules. */}
+            {!isReplaying && identity.roomRole !== 'viewer' && <ColorPalette yNodes={yNodes} />}
+
+            {/* Top-right: private-rooms shortcut + copy-link share button. */}
             {!isReplaying && (
-                <CommentPopover
-                    yNodes={yNodes}
-                    nodes={nodes}
-                    viewport={viewport}
-                    identity={{
-                        authorId: identity.authorId,
-                        authorName: identity.authorName,
-                        color: identity.color,
-                    }}
-                    canvasBounds={canvasBounds}
+                <div
+                    data-canvas-chrome="top-right-cluster"
+                    className="pointer-events-auto absolute right-4 top-4 z-30 flex items-center gap-2"
+                >
+                    <PrivateRoomsButton />
+                    <ShareButton />
+                </div>
+            )}
+
+            {/* Top-left: members sidebar toggle. */}
+            {!isReplaying && (
+                <MembersSidebar
+                    roomId={roomId}
+                    selfId={identity.authorId}
+                    selfName={identity.authorName}
+                    selfColor={identity.color}
+                    presence={presence}
+                    meta={meta}
                 />
             )}
 
-            {/* Time-Travel Replay timeline. */}
-            <TimelineReplay events={eventLog.events} />
+            {/* Bottom-left: zoom controls + undo/redo. */}
+            {!isReplaying && (
+                <ZoomDock
+                    zoom={viewport.zoom}
+                    onZoomIn={zoomIn}
+                    onZoomOut={zoomOut}
+                    onResetZoom={resetZoom}
+                    undoManager={undoManager}
+                />
+            )}
 
-            {/* HUD */}
-            <div className="pointer-events-none absolute bottom-3 left-3 select-none rounded-md bg-black/60 px-2 py-1 font-mono text-xs text-white/90">
-                {Math.round(viewport.zoom * 100)}% &middot; ({Math.round(viewport.x)},{' '}
-                {Math.round(viewport.y)})
-                {selection.size > 0 && (
-                    <span className="ml-2 text-amber-300">
-                        · {selection.size} selected
-                    </span>
-                )}
-            </div>
-            <div className="pointer-events-none absolute bottom-3 right-3 max-w-xs select-none rounded-md bg-black/60 px-3 py-2 text-xs text-white/80">
-                <div className="font-semibold text-white">
-                    Canvas · {labelForRole(identity.roomRole)}
-                </div>
-                <div>1–6 pick a tool · Esc → select / clear</div>
-                <div>Shift-drag marquee · Del/Bksp delete</div>
-                <div>Space-drag or middle-mouse to pan · ⌘+scroll zoom</div>
-                <div>H toggle history · + / − / 0 zoom</div>
-            </div>
+            {/* Bottom-right: AI classification legend. Always available
+                (including for viewers) so they understand the colored pills
+                that appear above auto-classified notes. */}
+            {!isReplaying && <ClassificationLegend />}
         </div>
     );
 }
 
-function labelForRole(role: RoomRole): string {
-    return role === 'lead' ? 'Lead' : role === 'contributor' ? 'Contributor' : 'Viewer';
-}
-
 function clamp(v: number, lo: number, hi: number): number {
     return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Renders a translucent preview of the in-progress drag-to-create shape.
+ * Mirrors the geometry that ShapeNode will use after commit, so the user
+ * gets WYSIWYG feedback for triangles and diamonds (not just bbox dashes).
+ */
+function ShapeDraftPreview({
+    draft,
+    fillMode,
+}: {
+    draft: {
+        kind: import('@/lib/types').ShapeKind;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+        color: string;
+        lineDir: import('@/lib/types').LineDir;
+    };
+    fillMode: 'solid' | 'outline';
+}) {
+    const W = Math.max(1, draft.w);
+    const H = Math.max(1, draft.h);
+    const isOutline = fillMode === 'outline';
+    const fill = isOutline ? 'transparent' : draft.color;
+    const stroke = isOutline ? draft.color : 'rgba(190,148,96,0.85)';
+    const sw = isOutline ? 2 : 2;
+    const inset = sw / 2;
+
+    let geo: React.ReactNode = null;
+    switch (draft.kind) {
+        case 'circle':
+            geo = (
+                <ellipse
+                    cx={W / 2}
+                    cy={H / 2}
+                    rx={Math.max(0, W / 2 - inset)}
+                    ry={Math.max(0, H / 2 - inset)}
+                    fill={fill}
+                    stroke={stroke}
+                    strokeWidth={sw}
+                    strokeDasharray="6 4"
+                />
+            );
+            break;
+        case 'rect':
+            geo = (
+                <rect
+                    x={inset}
+                    y={inset}
+                    width={Math.max(0, W - sw)}
+                    height={Math.max(0, H - sw)}
+                    rx={6}
+                    ry={6}
+                    fill={fill}
+                    stroke={stroke}
+                    strokeWidth={sw}
+                    strokeDasharray="6 4"
+                />
+            );
+            break;
+        default: {
+            const pts = getShapePoints(draft.kind, W, H, inset);
+            if (pts) {
+                geo = (
+                    <polygon
+                        points={pts}
+                        fill={fill}
+                        stroke={stroke}
+                        strokeWidth={sw}
+                        strokeDasharray="6 4"
+                        strokeLinejoin="round"
+                    />
+                );
+            } else if (draft.kind === 'line' || draft.kind === 'arrow') {
+                // Map lineDir to start/end corners of the bbox so the live
+                // preview follows the user's cursor (start point fixed, end
+                // point chases the mouse).
+                const corners: Record<
+                    import('@/lib/types').LineDir,
+                    [number, number, number, number]
+                > = {
+                    'tl-br': [inset, inset, Math.max(inset, W - inset), Math.max(inset, H - inset)],
+                    'tr-bl': [Math.max(inset, W - inset), inset, inset, Math.max(inset, H - inset)],
+                    'bl-tr': [inset, Math.max(inset, H - inset), Math.max(inset, W - inset), inset],
+                    'br-tl': [Math.max(inset, W - inset), Math.max(inset, H - inset), inset, inset],
+                };
+                const [x1, y1, x2, y2] = corners[draft.lineDir];
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const len = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+                const ux = dx / len;
+                const uy = dy / len;
+                const px = -uy;
+                const py = ux;
+                const headLen = Math.min(18, len * 0.4);
+                const headW = Math.min(10, len * 0.22);
+                const baseX = x2 - ux * headLen;
+                const baseY = y2 - uy * headLen;
+                const leftX = baseX + px * headW;
+                const leftY = baseY + py * headW;
+                const rightX = baseX - px * headW;
+                const rightY = baseY - py * headW;
+                geo = (
+                    <g>
+                        <line
+                            x1={x1}
+                            y1={y1}
+                            x2={draft.kind === 'arrow' ? baseX : x2}
+                            y2={draft.kind === 'arrow' ? baseY : y2}
+                            stroke={draft.color}
+                            strokeWidth={2}
+                            strokeDasharray="6 4"
+                            strokeLinecap="round"
+                        />
+                        {draft.kind === 'arrow' && (
+                            <polygon
+                                points={`${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`}
+                                fill={draft.color}
+                                stroke={draft.color}
+                                strokeWidth={2}
+                                strokeLinejoin="round"
+                            />
+                        )}
+                    </g>
+                );
+            }
+            break;
+        }
+    }
+
+    return (
+        <svg
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+                left: draft.x,
+                top: draft.y,
+                width: draft.w,
+                height: draft.h,
+                opacity: 0.7,
+                overflow: 'visible',
+            }}
+            width={draft.w}
+            height={draft.h}
+            viewBox={`0 0 ${W} ${H}`}
+            preserveAspectRatio="none"
+        >
+            {geo}
+        </svg>
+    );
 }
