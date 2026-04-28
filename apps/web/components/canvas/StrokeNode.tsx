@@ -68,9 +68,12 @@ function StrokeNodeImpl({ node, roomRole }: StrokeNodeProps) {
         <svg
             data-node-id={node.id}
             className="absolute left-0 top-0"
-            style={{ overflow: 'visible', pointerEvents: 'none' }}
-            width={0}
-            height={0}
+            style={{
+                overflow: 'visible',
+                pointerEvents: 'none',
+                width: 1,
+                height: 1,
+            }}
             aria-label={canEdit ? 'Stroke' : 'Stroke (locked)'}
         >
             {/* Invisible fat hit-target. */}

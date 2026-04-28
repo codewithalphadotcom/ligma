@@ -1,33 +1,26 @@
 'use client';
 
 /**
- * Lightweight client identity for the hackathon demo.
+ * Client identity hook.
  *
- * Generates and persists a stable `authorId` + display name + room role per
- * browser via localStorage. Replaced later by JWT-derived identity that the
- * server returns on signin (Teammate B/C).
+ * For authenticated users: identity (id, display name, color) comes from
+ * the NextAuth session; the session token also holds the Express-issued JWT
+ * used for WebSocket auth.
  *
- * Room role defaults to `lead` so a single-tab demo can exercise every
- * feature; flip it via `setRoomRole()` (also exposed on `window.ligma` in
- * dev) to test ACL gating.
+ * For unauthenticated visitors (public-canvas / share-link flow): a stable
+ * pseudo-identity is generated and persisted in localStorage. Display names
+ * default to "Guest 1234" but the user can override them later. The same id
+ * is reused across reloads so awareness colours and authorship stay stable.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { nanoid } from 'nanoid';
+import { useSession } from 'next-auth/react';
+import { userColor } from './user-color';
 import type { RoomRole } from './types';
 
-const ID_KEY = 'ligma:authorId';
-const NAME_KEY = 'ligma:authorName';
 const ROLE_KEY = 'ligma:roomRole';
-
-const ADJECTIVES = ['Swift', 'Bright', 'Quiet', 'Wild', 'Brave', 'Sly', 'Bold', 'Calm'];
-const ANIMALS = ['Otter', 'Falcon', 'Panda', 'Lynx', 'Heron', 'Wolf', 'Fox', 'Hawk'];
-
-function randomName(): string {
-    const a = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-    const b = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
-    return `${a} ${b}`;
-}
+const GUEST_ID_KEY = 'ligma:guestId';
+const GUEST_NAME_KEY = 'ligma:guestName';
 
 function readStoredRole(): RoomRole {
     if (typeof window === 'undefined') return 'lead';
@@ -36,53 +29,75 @@ function readStoredRole(): RoomRole {
     return 'lead';
 }
 
+function readGuestIdentity(): { id: string; name: string } {
+    let id = window.localStorage.getItem(GUEST_ID_KEY);
+    if (!id) {
+        id = `guest_${Math.random().toString(36).slice(2, 10)}`;
+        window.localStorage.setItem(GUEST_ID_KEY, id);
+    }
+    let name = window.localStorage.getItem(GUEST_NAME_KEY);
+    if (!name) {
+        name = `Guest ${Math.floor(1000 + Math.random() * 9000)}`;
+        window.localStorage.setItem(GUEST_NAME_KEY, name);
+    }
+    return { id, name };
+}
+
 export interface ClientIdentity {
     authorId: string;
     authorName: string;
+    color: string;
     roomRole: RoomRole;
 }
 
 export function useClientIdentity(): ClientIdentity | null {
-    const [identity, setIdentity] = useState<ClientIdentity | null>(null);
+    const { data: session, status } = useSession();
+    const [roomRole, setRoomRoleState] = useState<RoomRole>('lead');
+    const [guest, setGuest] = useState<{ id: string; name: string } | null>(null);
 
     useEffect(() => {
-        let id = localStorage.getItem(ID_KEY);
-        if (!id) {
-            id = nanoid(12);
-            localStorage.setItem(ID_KEY, id);
-        }
-        let name = localStorage.getItem(NAME_KEY);
-        if (!name) {
-            name = randomName();
-            localStorage.setItem(NAME_KEY, name);
-        }
-        const roomRole = readStoredRole();
-        setIdentity({ authorId: id, authorName: name, roomRole });
-
-        // Cross-tab role sync: listen for storage events.
+        setRoomRoleState(readStoredRole());
+        setGuest(readGuestIdentity());
         function onStorage(e: StorageEvent) {
-            if (e.key !== ROLE_KEY) return;
-            setIdentity((prev) =>
-                prev ? { ...prev, roomRole: readStoredRole() } : prev,
-            );
+            if (e.key === ROLE_KEY) setRoomRoleState(readStoredRole());
+            if (e.key === GUEST_NAME_KEY || e.key === GUEST_ID_KEY) {
+                setGuest(readGuestIdentity());
+            }
         }
         window.addEventListener('storage', onStorage);
         return () => window.removeEventListener('storage', onStorage);
     }, []);
 
-    return identity;
+    if (status === 'loading') return null;
+
+    if (status === 'authenticated' && session?.user?.id) {
+        return {
+            authorId: session.user.id,
+            authorName: session.user.name ?? 'User',
+            color: session.user.color ?? '#737373',
+            roomRole,
+        };
+    }
+
+    if (!guest) return null;
+    return {
+        authorId: guest.id,
+        authorName: guest.name,
+        color: userColor(guest.id),
+        roomRole: 'contributor',
+    };
 }
 
 /**
  * Returns a stable setter that updates the persisted room role and
- * synchronously refreshes the identity hook.
+ * synchronously refreshes the identity hook in the current tab.
  */
 export function useSetRoomRole(): (role: RoomRole) => void {
     return useCallback((role: RoomRole) => {
         if (typeof window === 'undefined') return;
         window.localStorage.setItem(ROLE_KEY, role);
-        // Manually fire a storage-equivalent event for the current tab; the
-        // native `storage` event only fires in *other* tabs.
+        // Native `storage` events only fire in *other* tabs, so we manually
+        // dispatch one for the current tab.
         window.dispatchEvent(
             new StorageEvent('storage', { key: ROLE_KEY, newValue: role }),
         );

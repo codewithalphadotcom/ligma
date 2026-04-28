@@ -7,7 +7,6 @@ import authRoutes from '@/routes/auth.js';
 import roomsRoutes from '@/routes/rooms.js';
 import intentRoutes from '@/routes/intent.js';
 import { handleConnection } from '@/services/yjs-server.js';
-import { runMigrations } from '@/db/client.js';
 import type { AuthPayload } from '@/middleware/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -39,22 +38,27 @@ server.on('upgrade', (req, socket, head) => {
         return;
     }
 
-    const roomId = match[1];
+    const roomId = match[1]!;
     const token = url.searchParams.get('token');
 
+    // Public-room guest path: when no token is supplied, mint a per-connection
+    // guest userId. The yjs-server treats `guest_*` users as contributors and
+    // bypasses DB-backed RBAC so unauthenticated visitors can collaborate on
+    // open rooms without first registering.
+    let userId: string;
+    let isGuest = false;
     if (!token) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
-    }
-
-    let payload: AuthPayload;
-    try {
-        payload = jwt.verify(token, JWT_SECRET as string) as AuthPayload;
-    } catch {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
+        userId = `guest_${Math.random().toString(36).slice(2, 10)}`;
+        isGuest = true;
+    } else {
+        try {
+            const payload = jwt.verify(token, JWT_SECRET as string) as AuthPayload;
+            userId = payload.userId;
+        } catch {
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
+            return;
+        }
     }
 
     const lastSeqId = url.searchParams.has('last_seq_id')
@@ -62,16 +66,11 @@ server.on('upgrade', (req, socket, head) => {
         : undefined;
 
     wss.handleUpgrade(req, socket, head, (ws) => {
-        handleConnection(ws, roomId, payload.userId, lastSeqId).catch((err) => {
+        handleConnection(ws, roomId, userId, lastSeqId, isGuest).catch((err) => {
             console.error('[ws] handleConnection error:', err);
             ws.close();
         });
     });
 });
 
-runMigrations()
-    .then(() => server.listen(PORT, () => console.log(`[ligma-server] listening on :${PORT}`)))
-    .catch((err) => {
-        console.error('[ligma-server] migration failed:', err);
-        process.exit(1);
-    });
+server.listen(PORT, () => console.log(`[ligma-server] listening on :${PORT}`));

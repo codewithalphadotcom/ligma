@@ -10,19 +10,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.38.0",
+    "lib0": "^0.2.97",
+    "lucide-react": "^0.469.0",
+    "nanoid": "^5.0.9",
     "next": "16.2.4",
+    "next-auth": "5.0.0-beta.25",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "yjs": "^13.6.20",
-    "y-websocket": "^2.0.4",
-    "y-protocols": "^1.0.6",
-    "lib0": "^0.2.97",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^2.5.5",
-    "class-variance-authority": "^0.7.1",
-    "lucide-react": "^0.469.0",
-    "zustand": "^5.0.2",
-    "nanoid": "^5.0.9"
+    "y-protocols": "^1.0.6",
+    "y-websocket": "^2.0.4",
+    "yjs": "^13.6.20",
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

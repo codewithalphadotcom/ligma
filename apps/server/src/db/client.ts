@@ -1,20 +1,5 @@
-import pg from 'pg';
-
-const { DATABASE_URL } = process.env;
-if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL environment variable is required');
-}
-
-export const pool = new pg.Pool({ connectionString: DATABASE_URL });
-
-export const query = (text: string, params?: unknown[]) =>
-  pool.query(text, params as pg.QueryConfigValues<unknown[]>);
-
-export async function runMigrations(): Promise<void> {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const { join, dirname } = await import('node:path');
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  const sql = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
-  await pool.query(sql);
-}
+// Legacy compatibility shim. The Drizzle-based client lives in `./index.ts`;
+// this module re-exports the bits that the old `pg`-based code paths used so
+// any straggling import keeps compiling. New code should import from
+// `@/db/index.js` directly.
+export { db, sql, schema } from './index.js';
