@@ -10,12 +10,23 @@
  */
 
 import { create } from 'zustand';
-import type { Tool } from './types';
+import type { FillMode, Tool } from './types';
 
 interface CanvasUIState {
     // ---- Tool ----
     tool: Tool;
     setTool: (t: Tool) => void;
+
+    // ---- Active draw / fill colour ----
+    /** Hex color applied to the next freehand stroke or shape fill. */
+    currentColor: string;
+    setCurrentColor: (c: string) => void;
+
+    // ---- Shape fill mode ----
+    /** 'solid' fills new shapes with `currentColor`; 'outline' applies the
+     *  color to the border and leaves the fill transparent. */
+    fillMode: FillMode;
+    setFillMode: (m: FillMode) => void;
 
     // ---- Selection (A8) ----
     /** Set of selected node ids. Stored as Set for O(1) membership checks. */
@@ -54,6 +65,12 @@ interface CanvasUIState {
 export const useCanvasUI = create<CanvasUIState>((set, get) => ({
     tool: 'select',
     setTool: (t) => set({ tool: t }),
+
+    currentColor: '#ede4d0',
+    setCurrentColor: (c) => set({ currentColor: c }),
+
+    fillMode: 'solid',
+    setFillMode: (m) => set({ fillMode: m }),
 
     selection: new Set<string>(),
     selectOnly: (id) => set({ selection: new Set([id]) }),
