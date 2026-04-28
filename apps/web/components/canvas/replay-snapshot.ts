@@ -51,8 +51,6 @@ function snapshotFromYMap(id: string, m: Y.Map<unknown>): NodeSnapshot {
         taskId: (m.get('taskId') as string | null) ?? null,
         points,
         strokeWidth: Number(m.get('strokeWidth') ?? 3),
-        fontSize: Number(m.get('fontSize') ?? 14),
-        fill: ((m.get('fill') as NodeSnapshot['fill']) ?? 'solid'),
         commentCount,
         createdAt: Number(m.get('createdAt') ?? 0),
         updatedAt: Number(m.get('updatedAt') ?? 0),
