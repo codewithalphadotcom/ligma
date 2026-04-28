@@ -21,6 +21,7 @@ export function WorkspaceClient({ roomId }: WorkspaceClientProps) {
   const room = useYRoom(roomId);
   const identity = useClientIdentity();
   const [logCollapsed, setLogCollapsed] = useState(false);
+  const [taskCollapsed, setTaskCollapsed] = useState(false);
 
   useIntentPipeline(
     room,
@@ -42,7 +43,13 @@ export function WorkspaceClient({ roomId }: WorkspaceClientProps) {
         <CanvasRootClient roomId={roomId} />
       </div>
 
-      {room && <TaskBoard room={room} />}
+      {room && (
+        <TaskBoard
+          room={room}
+          collapsed={taskCollapsed}
+          onToggle={() => setTaskCollapsed((v) => !v)}
+        />
+      )}
     </div>
   );
 }
