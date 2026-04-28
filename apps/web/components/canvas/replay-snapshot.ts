@@ -53,6 +53,7 @@ function snapshotFromYMap(id: string, m: Y.Map<unknown>): NodeSnapshot {
         strokeWidth: Number(m.get('strokeWidth') ?? 3),
         fontSize: Number(m.get('fontSize') ?? 14),
         fill: ((m.get('fill') as NodeSnapshot['fill']) ?? 'solid'),
+        lineDir: ((m.get('lineDir') as NodeSnapshot['lineDir']) ?? 'tl-br'),
         commentCount,
         createdAt: Number(m.get('createdAt') ?? 0),
         updatedAt: Number(m.get('updatedAt') ?? 0),

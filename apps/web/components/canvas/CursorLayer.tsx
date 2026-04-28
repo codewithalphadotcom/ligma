@@ -65,7 +65,7 @@ function CursorLayerImpl({ presence, viewport }: CursorLayerProps) {
                         />
                     </svg>
                     <div
-                        className="ml-3 mt-[-2px] inline-block max-w-[160px] truncate rounded-md px-1.5 py-0.5 text-xs font-medium text-white shadow"
+                        className="ml-3 -mt-0.5 inline-block max-w-40 truncate rounded-md px-1.5 py-0.5 text-xs font-medium text-white shadow"
                         style={{ backgroundColor: c.color }}
                     >
                         {c.name}

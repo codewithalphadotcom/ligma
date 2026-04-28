@@ -185,7 +185,7 @@ export function CommentPopover({
                                         {formatTimeAgo(c.createdAt)}
                                     </span>
                                 </div>
-                                <div className="whitespace-pre-wrap break-words text-neutral-800 dark:text-neutral-200">
+                                <div className="whitespace-pre-wrap wrap-break-word text-neutral-800 dark:text-neutral-200">
                                     {c.text}
                                 </div>
                             </li>
