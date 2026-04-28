@@ -181,20 +181,20 @@
 
 #### Deliverables
 
-| #   | Feature                                                                                                                                                  | Time Budget | Status                                        |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------- |
-| C1  | Next.js project scaffold + Tailwind + shadcn/ui setup                                                                                                    | 0–1h       | ✅ Done                                        |
-| C2  | Landing page — hero, features, CTA, how-it-works                                                                                                        | 1–4h       | 🟡 Partial (basic page exists, needs full UI) |
-| C3  | Auth pages — /login, /signup with JWT storage                                                                                                           | 4–6h       | ⏳ Pending                                    |
-| C4  | Room creation + join flow — /dashboard, /room/[roomId] shell                                                                                            | 6–8h       | 🟡 Partial (room shell exists, no dashboard)  |
-| C5  | Main workspace layout — canvas area (left) + task board panel (right) + event log sidebar                                                               | 8–10h      | ⏳ Pending                                    |
-| C6  | Task Board component — live list, author chip, timestamp, "jump to node" button                                                                         | 10–13h     | ⏳ Pending                                    |
-| C7  | Task Board real-time sync — subscribe to Y.js shared array of tasks, updates propagate automatically                                                    | 13–15h     | ⏳ Pending                                    |
-| C8  | Event Log sidebar — scrollable, reverse chronological, event type badges                                                                                | 15–17h     | ⏳ Pending                                    |
-| C9  | AI intent pipeline integration — on node text change debounce 1.5s → call /intent → update node classification tag → push action items to task board | 17–19h     | ⏳ Pending                                    |
-| C10 | Role management UI — Lead can open node context menu → set per-node role                                                                               | 19–21h     | ⏳ Pending                                    |
-| C11 | AI Summary Export panel (bonus) — if time permits                                                                                                       | 21–23h     | ⏳ Pending                                    |
-| C12 | README.md — architecture diagram (Mermaid), CRDT explanation, event-sourcing explanation, setup instructions                                            | 23–24h     | ⏳ Pending                                    |
+| #   | Feature                                                                                                                                                  | Time Budget | Status     |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------- |
+| C1  | Next.js project scaffold + Tailwind + shadcn/ui setup                                                                                                    | 0–1h       | ✅ Done    |
+| C2  | Landing page — hero, features, CTA, how-it-works                                                                                                        | 1–4h       | ✅ Done    |
+| C3  | Auth pages — /login, /signup with JWT storage                                                                                                           | 4–6h       | ✅ Done    |
+| C4  | Room creation + join flow — /dashboard, /room/[roomId] shell                                                                                            | 6–8h       | ✅ Done    |
+| C5  | Main workspace layout — canvas area (left) + task board panel (right) + event log sidebar                                                               | 8–10h      | ✅ Done    |
+| C6  | Task Board component — live list, author chip, timestamp, "jump to node" button                                                                         | 10–13h     | ✅ Done    |
+| C7  | Task Board real-time sync — subscribe to Y.js shared array of tasks, updates propagate automatically                                                    | 13–15h     | ✅ Done    |
+| C8  | Event Log sidebar — scrollable, reverse chronological, event type badges                                                                                | 15–17h     | ✅ Done    |
+| C9  | AI intent pipeline integration — on node text change debounce 1.5s → call /intent → update node classification tag → push action items to task board | 17–19h     | ✅ Done    |
+| C10 | Role management UI — Lead can open node context menu → set per-node role                                                                               | 19–21h     | ⏳ Pending |
+| C11 | AI Summary Export panel (bonus) — if time permits                                                                                                       | 21–23h     | ⏳ Pending |
+| C12 | README.md — architecture diagram (Mermaid), CRDT explanation, event-sourcing explanation, setup instructions                                            | 23–24h     | ⏳ Pending |
 
 #### Key Technical Decisions (C owns these)
 
