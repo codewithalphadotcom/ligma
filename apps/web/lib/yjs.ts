@@ -54,9 +54,13 @@ export function acquireRoom(roomId: string): RoomHandle {
     const tasks = doc.getArray<unknown>('tasks');
     const events = doc.getArray<unknown>('events');
 
-    // y-websocket joins room "ligma-<roomId>" on the configured server.
-    const provider = new WebsocketProvider(env.wsUrl, `ligma-${roomId}`, doc, {
+    // Connect to /room/:roomId on the backend. Read JWT from localStorage so
+    // the server can verify identity and enforce RBAC on every WS message.
+    const token = localStorage.getItem('ligma:token') ?? '';
+    const lastSeqId = localStorage.getItem(`ligma:seq:${roomId}`) ?? '0';
+    const provider = new WebsocketProvider(`${env.wsUrl}/room`, roomId, doc, {
         connect: true,
+        params: { token, last_seq_id: lastSeqId },
     });
 
     const handle: RoomHandle = { roomId, doc, provider, nodes, tasks, events };
