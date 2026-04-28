@@ -15,8 +15,10 @@ import { bindYTextToTextarea } from '@/lib/y-textarea-binding';
 import type { NodeSnapshot, RoomRole } from '@/lib/types';
 import { canEditNode } from '@/lib/acl';
 import { useCanvasUI } from '@/lib/canvas-store';
-import { setNodePosition } from './node-ops';
+import { setNodePosition, setNodeAcl } from './node-ops';
 import { NodeChrome } from './NodeChrome';
+import { ResizeHandles } from './ResizeHandles';
+import { ClassificationBadge } from './ClassificationBadge';
 
 interface TextBlockNodeProps {
     node: NodeSnapshot;
@@ -161,7 +163,16 @@ function TextBlockNodeImpl({ node, yNodes, zoom, roomRole }: TextBlockNodeProps)
                 selected={selected}
                 commentCount={node.commentCount}
                 onCommentClick={() => setCommentOpen(node.id)}
+                onAclChange={
+                    roomRole === 'lead'
+                        ? (next) => setNodeAcl(yNodes, node.id, next)
+                        : undefined
+                }
             />
+            <ClassificationBadge classification={node.classification} />
+            {selected && canEdit && !editing && (
+                <ResizeHandles node={node} yNodes={yNodes} zoom={zoom} />
+            )}
             {editing ? (
                 <textarea
                     ref={textareaRef}
@@ -173,11 +184,15 @@ function TextBlockNodeImpl({ node, yNodes, zoom, roomRole }: TextBlockNodeProps)
                         }
                         e.stopPropagation();
                     }}
-                    className="h-full w-full resize-none bg-transparent font-sans text-base leading-snug text-neutral-900 outline-none placeholder:text-neutral-500"
+                    style={{ color: node.color, fontSize: node.fontSize, lineHeight: 1.25 }}
+                    className="h-full w-full resize-none bg-transparent font-sans outline-none placeholder:text-neutral-500"
                     placeholder="Type…"
                 />
             ) : (
-                <div className="whitespace-pre-wrap break-words font-sans text-base leading-snug text-neutral-900">
+                <div
+                    style={{ color: node.color, fontSize: node.fontSize, lineHeight: 1.25 }}
+                    className="whitespace-pre-wrap wrap-break-word font-sans"
+                >
                     {node.content || (
                         <span className="text-neutral-500 italic">
                             {canEdit ? 'Double-click to edit text' : 'Read-only'}

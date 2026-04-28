@@ -19,8 +19,10 @@ import { bindYTextToTextarea } from '@/lib/y-textarea-binding';
 import type { NodeSnapshot, RoomRole } from '@/lib/types';
 import { canEditNode } from '@/lib/acl';
 import { useCanvasUI } from '@/lib/canvas-store';
-import { setNodePosition } from './node-ops';
+import { setNodePosition, setNodeAcl } from './node-ops';
 import { NodeChrome } from './NodeChrome';
+import { ResizeHandles } from './ResizeHandles';
+import { ClassificationBadge } from './ClassificationBadge';
 
 interface StickyNoteProps {
     node: NodeSnapshot;
@@ -178,7 +180,16 @@ function StickyNoteImpl({ node, yNodes, zoom, roomRole }: StickyNoteProps) {
                 selected={selected}
                 commentCount={node.commentCount}
                 onCommentClick={() => setCommentOpen(node.id)}
+                onAclChange={
+                    roomRole === 'lead'
+                        ? (next) => setNodeAcl(yNodes, node.id, next)
+                        : undefined
+                }
             />
+            <ClassificationBadge classification={node.classification} />
+            {selected && canEdit && !editing && (
+                <ResizeHandles node={node} yNodes={yNodes} zoom={zoom} />
+            )}
             {editing ? (
                 <textarea
                     ref={textareaRef}
@@ -191,12 +202,16 @@ function StickyNoteImpl({ node, yNodes, zoom, roomRole }: StickyNoteProps) {
                         // Don't let key events bubble up to canvas-level shortcuts.
                         e.stopPropagation();
                     }}
-                    className="h-full w-full resize-none rounded-md bg-transparent p-3 font-sans text-sm leading-snug text-neutral-900 outline-none placeholder:text-neutral-500"
+                    style={{ fontSize: node.fontSize, lineHeight: 1.3 }}
+                    className="h-full w-full resize-none rounded-md bg-transparent p-3 font-sans text-neutral-900 outline-none placeholder:text-neutral-500"
                     placeholder="Type your note…"
                 />
             ) : (
                 <div className="flex h-full w-full flex-col p-3">
-                    <div className="whitespace-pre-wrap break-words text-sm leading-snug text-neutral-900">
+                    <div
+                        style={{ fontSize: node.fontSize, lineHeight: 1.3 }}
+                        className="whitespace-pre-wrap break-words text-neutral-900"
+                    >
                         {node.content || (
                             <span className="text-neutral-500 italic">
                                 {canEdit ? 'Double-click to edit' : 'Read-only'}
