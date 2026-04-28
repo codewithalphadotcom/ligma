@@ -6,7 +6,33 @@
  * read out of the Y.Map for rendering — `content` becomes a string snapshot.
  */
 
-export type NodeType = 'sticky' | 'rect' | 'circle' | 'text' | 'stroke';
+export type NodeType =
+    | 'sticky'
+    | 'rect'
+    | 'circle'
+    | 'triangle'
+    | 'diamond'
+    | 'hexagon'
+    | 'pentagon'
+    | 'star'
+    | 'parallelogram'
+    | 'line'
+    | 'arrow'
+    | 'text'
+    | 'stroke';
+
+/** Subset of NodeType that is created by the shape tools and rendered by ShapeNode. */
+export type ShapeKind =
+    | 'rect'
+    | 'circle'
+    | 'triangle'
+    | 'diamond'
+    | 'hexagon'
+    | 'pentagon'
+    | 'star'
+    | 'parallelogram'
+    | 'line'
+    | 'arrow';
 
 export type NodeAcl = 'lead-only' | 'contributor+' | 'all';
 
@@ -50,6 +76,13 @@ export type NodeClassification =
     | 'reference'
     | null;
 
+/**
+ * Direction of a line/arrow node within its bounding box. Encoded as the
+ * start corner → end corner so that the arrowhead points in the correct
+ * direction the user dragged. For non-line node types this is ignored.
+ */
+export type LineDir = 'tl-br' | 'tr-bl' | 'bl-tr' | 'br-tl';
+
 /** A 2D point in world space. Used for freehand stroke vertices. */
 export interface StrokePoint {
     x: number;
@@ -78,6 +111,21 @@ export interface NodeSnapshot {
     points: StrokePoint[];
     /** Stroke-only: line width in world pixels. */
     strokeWidth: number;
+    /**
+     * Sticky / shape / text label font size, in world pixels. Auto-scales
+     * during resize so text grows with the box. Default 14.
+     */
+    fontSize: number;
+    /**
+     * Visual fill mode for shape nodes. Always 'solid' for non-shape types.
+     */
+    fill: FillMode;
+    /**
+     * For line/arrow nodes only: which diagonal of the bounding box the
+     * line follows so the arrowhead matches the user's drag direction.
+     * Defaults to 'tl-br'.
+     */
+    lineDir: LineDir;
     /** Number of comments on this node (live count from comments Y.Array). */
     commentCount: number;
     createdAt: number;
@@ -117,7 +165,46 @@ export const STICKY_COLORS = [
 ] as const;
 
 /** Tool modes for canvas interaction. */
-export type Tool = 'select' | 'sticky' | 'rect' | 'circle' | 'text' | 'draw';
+/** Visual fill mode for shape nodes. `solid` = filled with node.color and a
+ *  subtle dark border. `outline` = transparent fill, the chosen color is
+ *  applied to the shape's border instead. */
+export type FillMode = 'solid' | 'outline';
+
+/** Tool modes for canvas interaction. */
+export type Tool =
+    | 'select'
+    | 'sticky'
+    | 'rect'
+    | 'circle'
+    | 'triangle'
+    | 'diamond'
+    | 'hexagon'
+    | 'pentagon'
+    | 'star'
+    | 'parallelogram'
+    | 'line'
+    | 'arrow'
+    | 'text'
+    | 'draw'
+    | 'eraser'
+    | 'pixel-eraser';
+
+/** Curated palette used by the toolbar's color picker — tuned to be
+ *  legible on the espresso-dark canvas background. */
+export const PALETTE_COLORS = [
+    '#ede4d0', // ivory (default)
+    '#be9460', // brass
+    '#f87171', // red
+    '#fb923c', // orange
+    '#facc15', // amber
+    '#4ade80', // green
+    '#38bdf8', // sky
+    '#a78bfa', // violet
+    '#f472b6', // pink
+    '#0b0906', // espresso (near-black)
+] as const;
+
+export type PaletteColor = typeof PALETTE_COLORS[number];
 
 /**
  * Awareness payload broadcast via Y.js for live presence.
