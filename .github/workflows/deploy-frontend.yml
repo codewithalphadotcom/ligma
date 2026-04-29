@@ -1,0 +1,27 @@
+name: Deploy Frontend
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'bun.lock'
+      - '.github/workflows/deploy-frontend.yml'
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ligma-github-actions-role
+          aws-region: ap-south-1
+
+      - run: |
+          aws amplify start-job \
+            --app-id ${{ secrets.AMPLIFY_APP_ID }} \
+            --branch-name main \
+            --job-type RELEASE

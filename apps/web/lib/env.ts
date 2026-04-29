@@ -1,15 +1,14 @@
 /**
  * Centralised, typed access to public env vars.
  * Only NEXT_PUBLIC_* vars are exposed to the browser.
+ *
+ * Each var must be accessed via a static `process.env.NEXT_PUBLIC_*`
+ * expression so Next.js can inline the value at build time. Dynamic
+ * bracket access (process.env[key]) bypasses the static replacement
+ * and always falls back to the default in the browser bundle.
  */
-
-function readPublic(key: `NEXT_PUBLIC_${string}`, fallback: string): string {
-    const v = process.env[key];
-    return v && v.length > 0 ? v : fallback;
-}
-
 export const env = {
-    apiUrl: readPublic('NEXT_PUBLIC_API_URL', 'http://localhost:8080'),
-    wsUrl: readPublic('NEXT_PUBLIC_WS_URL', 'ws://localhost:8080'),
-    defaultRoom: readPublic('NEXT_PUBLIC_DEFAULT_ROOM', 'demo'),
+    apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080',
+    wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080',
+    defaultRoom: process.env.NEXT_PUBLIC_DEFAULT_ROOM || 'demo',
 } as const;
