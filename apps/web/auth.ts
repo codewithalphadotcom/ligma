@@ -114,7 +114,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             const googleId = (profile?.sub as string | undefined) ?? account.providerAccountId;
             if (!email || !googleId) return false;
 
-            const data = await expressGoogleUpsert({ email, name, googleId });
+            let data: ExpressAuthResponse | null = null;
+            try {
+                data = await expressGoogleUpsert({ email, name, googleId });
+            } catch (err) {
+                console.error('[signIn] expressGoogleUpsert failed:', err);
+                return false;
+            }
             if (!data) return false;
             // Mutate the user reference so `jwt` callback below sees these.
             (user as { apiToken?: string }).apiToken = data.token;
