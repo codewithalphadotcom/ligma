@@ -24,30 +24,9 @@ export default function Hero({ demoRoom }: HeroProps) {
     const { status } = useSession();
     const authed = status === 'authenticated';
     return (
-        <section className="relative overflow-hidden bg-[#0b0906]">
+        <section className="relative overflow-hidden">
 
-            {/* Warm brass grid */}
-            <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0"
-                style={{
-                    backgroundImage:
-                        'linear-gradient(rgba(190,148,96,0.09) 1px, transparent 1px), linear-gradient(90deg, rgba(190,148,96,0.09) 1px, transparent 1px)',
-                    backgroundSize: '48px 48px',
-                }}
-            />
-
-            {/* Soft warm radial vignette at top center */}
-            <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0"
-                style={{
-                    background:
-                        'radial-gradient(ellipse 65% 50% at 50% 0%, rgba(190,148,96,0.08) 0%, transparent 65%)',
-                }}
-            />
-
-            <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center px-6 pt-28 pb-32 text-center">
+            <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center px-6 pt-44 pb-32 text-center">
 
                 {/* Headline — 2 lines */}
                 <motion.h1

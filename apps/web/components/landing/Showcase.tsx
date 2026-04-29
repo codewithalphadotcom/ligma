@@ -325,6 +325,42 @@ export default function Showcase() {
                     </div>
                 </motion.div>
 
+                {/* ── Capability strip ───────────────────────────────── */}
+                <motion.div
+                    initial={{ opacity: 0, y: 14 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: '-60px' }}
+                    transition={{ duration: 0.65, delay: 0.15, ease: EASE }}
+                    className="mb-14 grid grid-cols-2 gap-px overflow-hidden rounded-2xl sm:grid-cols-4"
+                    style={{ border: '1px solid rgba(190,148,96,0.13)' }}
+                >
+                    {[
+                        { stat: '01', label: 'open a room URL' },
+                        { stat: '02', label: 'drop nodes · invite team' },
+                        { stat: '03', label: 'AI extracts intent' },
+                        { stat: '04', label: 'tasks land in board' },
+                    ].map((item, i) => (
+                        <div
+                            key={i}
+                            className="flex flex-col items-center gap-1.5 px-6 py-7"
+                            style={{ background: 'rgba(190,148,96,0.03)' }}
+                        >
+                            <span
+                                className="font-poppins text-[1.6rem] font-bold tracking-tight"
+                                style={{ color: '#ede4d0' }}
+                            >
+                                {item.stat}
+                            </span>
+                            <span
+                                className="font-mono text-[10px] uppercase tracking-[0.22em]"
+                                style={{ color: 'rgba(190,148,96,0.5)' }}
+                            >
+                                {item.label}
+                            </span>
+                        </div>
+                    ))}
+                </motion.div>
+
                 {/* Content panel */}
                 <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_1.4fr] lg:items-center lg:gap-16">
 
