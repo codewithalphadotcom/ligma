@@ -27,6 +27,9 @@ interface TaskData {
 
 interface TaskBoardProps {
     room: RoomHandle;
+    /** Human-friendly room name (set by the host on creation). Used for the
+     *  AI Summary export heading. Falls back to the room id when absent. */
+    roomName?: string;
     collapsed: boolean;
     onToggle: () => void;
 }
@@ -54,7 +57,7 @@ function jumpToNode(nodeId: string): void {
     window.dispatchEvent(new CustomEvent('ligma:jump-to-node', { detail: { nodeId } }));
 }
 
-export function TaskBoard({ room, collapsed, onToggle }: TaskBoardProps) {
+export function TaskBoard({ room, roomName, collapsed, onToggle }: TaskBoardProps) {
     const [tasks, setTasks] = useState<TaskData[]>([]);
     // Live cache of nodeId → plain-text content. We need this both for the
     // <TaskItem> rows (already handled per-item) AND for the export flow,
@@ -260,6 +263,7 @@ export function TaskBoard({ room, collapsed, onToggle }: TaskBoardProps) {
                         </div>
                         <ExportFooter
                             roomId={room.roomId}
+                            roomName={roomName}
                             tasks={dedupedTasks}
                             nodeContents={nodeContents}
                         />
@@ -372,13 +376,14 @@ function TaskItem({ task, room, onToggle, onJump, colorClass }: TaskItemProps) {
 
 interface ExportFooterProps {
     roomId: string;
+    roomName?: string;
     tasks: TaskData[];
     nodeContents: Record<string, string>;
 }
 
 type ExportFormat = 'md' | 'pdf';
 
-function ExportFooter({ roomId, tasks, nodeContents }: ExportFooterProps) {
+function ExportFooter({ roomId, roomName, tasks, nodeContents }: ExportFooterProps) {
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState<ExportFormat | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -417,13 +422,25 @@ function ExportFooter({ roomId, tasks, nodeContents }: ExportFooterProps) {
         setBusy(format);
         setError(null);
         try {
+            // Prefer the human-friendly room name (assigned by the host) for
+            // the document heading; fall back to the room id only when we
+            // genuinely don't have it (e.g. unauthenticated guest who can't
+            // read /rooms/:id). The id is NEVER used as the heading title in
+            // that fallback — the server prompt drops it and renders
+            // "Action Summary" by itself.
+            const headingName = roomName && roomName.trim().length > 0 ? roomName.trim() : undefined;
             const { markdown } = await api.summarizeTasks({
                 tasks: payloadTasks,
-                roomName: roomId,
+                roomName: headingName,
             });
 
             const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-            const baseName = `ligma-summary-${roomId}-${stamp}`;
+            const slug = (headingName ?? roomId)
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .slice(0, 60) || 'room';
+            const baseName = `ligma-summary-${slug}-${stamp}`;
 
             if (format === 'md') {
                 downloadBlob(

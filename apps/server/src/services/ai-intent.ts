@@ -111,15 +111,30 @@ export interface TaskSummaryInput {
   createdAt: number;
 }
 
-const SUMMARY_SYSTEM_PROMPT = `You are an assistant that turns a raw list of action items from a collaborative whiteboard into a clean, readable Markdown summary suitable for sharing with a team.
+const SUMMARY_SYSTEM_PROMPT = `You are a senior project manager writing a polished, share-ready meeting summary for a collaborative whiteboard. Your audience is a busy team that needs to immediately understand the state of the work without reading the raw items themselves.
 
-Requirements:
-- Output strict Markdown only (no code fences wrapping the whole document).
-- Start with a short paragraph (1–3 sentences) that textualizes what the team is working on, based on the items.
-- Then a "## Open Action Items" section with bullet points. Each bullet: the task rephrased clearly, with the assignee in italics at the end, e.g. "- Ship the onboarding flow — *Alex*".
-- Then a "## Completed" section with the same bullet style for done items (omit this section entirely if there are none).
-- Keep wording crisp. Group obvious duplicates. Do not invent items not present in the input.
-- No preamble like "Here is your summary". Begin directly with the paragraph.`;
+You will receive a JSON payload with a \`room\` (the human-friendly room/project name) and an \`items\` array, where each item has \`text\`, \`author\`, and \`status\` ("open" or "done").
+
+OUTPUT FORMAT — follow EXACTLY:
+1. The very first line MUST be a single H1 title in this exact form: \`# <Room Name> — Action Summary\`. Use the value of \`room\` from the input verbatim. If \`room\` is null/empty, use \`# Action Summary\`. NEVER put a UUID, room id, or random hex string in the title.
+2. Blank line, then a 2–4 sentence executive paragraph that synthesizes WHAT the team is working on and the overall state of progress. Infer the theme from the items themselves (e.g. "preparing a product demo", "shipping onboarding", "fixing critical bugs"). Be specific and confident — do not say "the team has some items".
+3. Blank line, then \`## Open Action Items\` containing a Markdown bullet list — one bullet per open item. Each bullet:
+   - Rewrite the raw text into a clear, imperative task ("Fix the login bug before demo", not "login is broken!!").
+   - Fix obvious typos and capitalization. Strip filler/profanity. Keep it professional.
+   - End each bullet with \` — *<Author Name>*\` (em dash + italic author).
+   - Example: \`- Fix the login bug before the demo — *Minion*\`
+4. If at least one item has status "done": blank line, then \`## Completed\` with the same bullet style for those items. If there are NO done items, OMIT this section entirely — do not write an empty heading.
+
+HARD RULES:
+- Output strict Markdown only. NO code fences, NO HTML, NO JSON, NO commentary, NO preamble like "Here is your summary".
+- NEVER include the room id / UUID anywhere in the document.
+- NEVER invent action items that are not in the input.
+- Merge obvious duplicates (same author + same intent) into a single bullet.
+- Preserve every distinct action item — do not drop items just because they are short or informal.
+- Even if there is only ONE item, still produce the full structure (title, paragraph, Open Action Items section).
+- Keep the tone crisp, professional, and confident. No hedging ("maybe", "it seems"), no emojis, no exclamation marks.
+
+Begin your response with the \`#\` title line. Nothing before it.`;
 
 function localFallbackSummary(tasks: TaskSummaryInput[], roomName?: string): string {
   const open = tasks.filter((t) => t.status === 'open');
@@ -211,10 +226,18 @@ export async function summarizeTasks(
       .replace(/\n?```\s*$/i, '')
       .trim();
 
-    // Prepend a title line if the model didn't include one.
-    const md = /^#\s/.test(stripped)
-      ? stripped
-      : `# ${roomName ? `${roomName} — Action Summary` : 'Action Summary'}\n\n${stripped}`;
+    // Defensive: enforce the correct H1 title regardless of what the model
+    // produced. We've seen Groq occasionally echo the room id (a UUID) in the
+    // title even when the system prompt forbids it, so we always rewrite the
+    // first heading line with the canonical title.
+    const canonicalTitle = `# ${roomName ? `${roomName} — Action Summary` : 'Action Summary'}`;
+    let body = stripped;
+    if (/^#\s+/.test(body)) {
+      // Replace the first H1 line with our canonical title.
+      body = body.replace(/^#\s+.*\n?/, '');
+    }
+    body = body.replace(/^\s+/, '');
+    const md = `${canonicalTitle}\n\n${body}`;
 
     return { markdown: md + (md.endsWith('\n') ? '' : '\n'), source: 'groq' };
   } catch {
