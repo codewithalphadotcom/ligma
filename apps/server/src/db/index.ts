@@ -2,9 +2,9 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from './schema.js';
 
-const CONNECTION_URL = process.env.DATABASE_URL;
+const CONNECTION_URL = process.env.NEONDB_URL;
 if (!CONNECTION_URL) {
-    throw new Error('DATABASE_URL environment variable is required');
+    throw new Error('NEONDB_URL environment variable is required');
 }
 
 export const sql = postgres(CONNECTION_URL, {

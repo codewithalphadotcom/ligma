@@ -29,9 +29,9 @@ function loadEnvFile(path: string) {
 loadEnvFile(join(process.cwd(), '.env.local'));
 loadEnvFile(join(process.cwd(), '.env'));
 
-const url = process.env.DATABASE_URL;
+const url = process.env.NEONDB_URL;
 if (!url) {
-    throw new Error('DATABASE_URL environment variable is required for drizzle-kit');
+    throw new Error('NEONDB_URL environment variable is required for drizzle-kit');
 }
 
 export default {
