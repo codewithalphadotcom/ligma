@@ -13,7 +13,9 @@ import Google from 'next-auth/providers/google';
  * keep verifying that JWT exactly the same way they always have.
  */
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
+// Prefer server-only API_URL (runtime) over the NEXT_PUBLIC_ build-time baked value
+// so that changing the env var on the host doesn't require a full rebuild.
+const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 const sharedSecret = process.env.AUTH_SHARED_SECRET;
 
 interface ExpressAuthResponse {
