@@ -8,10 +8,8 @@ services:
     startCommand: $HOME/.bun/bin/bun run src/index.ts
     healthCheckPath: /health
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ligma-db
-          property: connectionString
+      - key: NEONDB_URL
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: HUGGINGFACE_API_KEY
@@ -21,8 +19,4 @@ services:
       - key: NODE_ENV
         value: production
 
-databases:
-  - name: ligma-db
-    plan: free
-    databaseName: ligma
-    user: ligmauser
+databases: []
