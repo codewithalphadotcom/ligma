@@ -40,6 +40,11 @@ export function useIntentPipeline(room: RoomHandle | null, authorId: string, aut
       const node = room.nodes.get(nodeId);
       if (!node) return;
 
+      // Defence in depth: even if a non-author somehow reaches this path,
+      // bail out so only the node owner writes classification + task data.
+      const nodeAuthor = String(node.get('authorId') ?? '');
+      if (nodeAuthor !== authorId) return;
+
       const raw = node.get('content');
       // content is stored as Y.Text (CRDT), not a plain string
       const text = (raw && typeof (raw as { toString(): string }).toString === 'function'
@@ -105,6 +110,15 @@ export function useIntentPipeline(room: RoomHandle | null, authorId: string, aut
         // Only classify text-bearing nodes (sticky + text block)
         if (type !== 'sticky' && type !== 'text') return;
 
+        // Only the node's author drives classification + task creation.
+        // Otherwise every connected client races to push its own task for
+        // the same node — Y.js can't dedupe across clients before sync, so
+        // the Task Board ends up with one duplicate per active member.
+        // The author owns the node, so their client is the single source
+        // of truth for the auto-generated action item.
+        const nodeAuthor = String(node.get('authorId') ?? '');
+        if (nodeAuthor !== authorId) return;
+
         // Cheap pre-check: skip nodes whose text we already classified.
         // This avoids resetting the debounce timer on every observeDeep
         // tick triggered by our own classification/taskId writes.
@@ -138,6 +152,40 @@ export function useIntentPipeline(room: RoomHandle | null, authorId: string, aut
         if (text) lastClassifiedText.current.set(nodeId, text);
       }
     });
+
+    // One-shot dedupe pass: collapse any duplicate tasks already present in
+    // the shared array (left over from before the author-only fix). To
+    // avoid every client racing to mutate the same array, only the author
+    // of a node prunes duplicates for that node — keep the earliest task
+    // and drop the rest.
+    {
+      const arr = room.tasks.toArray() as TaskData[];
+      const byNode = new Map<string, TaskData[]>();
+      for (const t of arr) {
+        const list = byNode.get(t.nodeId);
+        if (list) list.push(t);
+        else byNode.set(t.nodeId, [t]);
+      }
+      const removeIds = new Set<string>();
+      for (const [nodeId, list] of byNode) {
+        if (list.length <= 1) continue;
+        const node = room.nodes.get(nodeId);
+        if (!node) continue;
+        const nodeAuthor = String(node.get('authorId') ?? '');
+        if (nodeAuthor !== authorId) continue; // not our node — leave it
+        list.sort((a, b) => a.createdAt - b.createdAt);
+        for (let i = 1; i < list.length; i++) removeIds.add(list[i]!.id);
+      }
+      if (removeIds.size > 0) {
+        room.doc.transact(() => {
+          // Walk the array from the end so indices stay valid as we delete.
+          for (let i = room.tasks.length - 1; i >= 0; i--) {
+            const t = room.tasks.get(i) as TaskData;
+            if (removeIds.has(t.id)) room.tasks.delete(i, 1);
+          }
+        }, 'task-dedupe');
+      }
+    }
 
     room.nodes.observeDeep(onNodesChange);
     return () => {
