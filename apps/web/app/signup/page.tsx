@@ -65,7 +65,7 @@ export default function SignupPage() {
     <>
       <Nav />
       <main
-        className="relative flex-1 bg-[#0b0906]"
+        className="relative flex-1 bg-[#0b0906] pt-[68px]"
         style={{
           backgroundImage:
             'linear-gradient(rgba(190,148,96,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(190,148,96,0.055) 1px, transparent 1px)',
