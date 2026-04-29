@@ -13,6 +13,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
+    "jspdf": "^4.2.1",
     "lib0": "^0.2.97",
     "lucide-react": "^0.469.0",
     "nanoid": "^5.0.9",
