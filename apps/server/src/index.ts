@@ -12,6 +12,33 @@ import type { AuthPayload } from '@/middleware/auth.js';
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
 
+// Pool-level connection failures (Neon endpoint flapping, transient network
+// errors, etc.) bubble up as unhandled rejections from postgres.js. Without
+// a global handler, Bun prints a multi-thousand-line stack trace per
+// occurrence and floods the dev terminal. Log a single concise line and
+// move on — the lib will retry on the next query.
+process.on('unhandledRejection', (reason: unknown) => {
+    const err = reason as { code?: string; address?: string; port?: number; message?: string } | undefined;
+    if (err?.code === 'ECONNREFUSED' || err?.code === 'EHOSTUNREACH' || err?.code === 'ETIMEDOUT') {
+        console.warn(
+            `[server] transient connection error: ${err.code} ${err.address ?? ''}:${err.port ?? ''} — will retry`,
+        );
+        return;
+    }
+    console.error('[server] unhandledRejection:', reason);
+});
+
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'ECONNREFUSED' || err.code === 'EHOSTUNREACH' || err.code === 'ETIMEDOUT') {
+        const e = err as NodeJS.ErrnoException & { address?: string; port?: number };
+        console.warn(
+            `[server] transient connection error: ${err.code} ${e.address ?? ''}:${e.port ?? ''} — will retry`,
+        );
+        return;
+    }
+    console.error('[server] uncaughtException:', err);
+});
+
 const app = express();
 app.use(cors());
 app.use(express.json());
