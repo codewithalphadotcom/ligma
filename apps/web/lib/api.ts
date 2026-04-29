@@ -154,6 +154,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+
+  summarizeTasks: (data: {
+    tasks: { content: string; authorName: string; status: 'open' | 'done'; createdAt: number }[];
+    roomName?: string;
+  }) =>
+    request<{ markdown: string; source: 'groq' | 'fallback' }>('/intent/summary', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
 
 /**

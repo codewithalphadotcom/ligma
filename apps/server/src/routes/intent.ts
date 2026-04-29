@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { classifyIntent } from '@/services/ai-intent.js';
+import { classifyIntent, summarizeTasks, type TaskSummaryInput } from '@/services/ai-intent.js';
 import type { AuthPayload } from '@/middleware/auth.js';
 
 const router = Router();
@@ -80,6 +80,68 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   const result = await classifyIntent(trimmed);
+  res.json(result);
+});
+
+/**
+ * POST /intent/summary
+ *
+ * Takes the current snapshot of Task Board items and returns an AI-generated
+ * Markdown summary suitable for downloading as `.md` or rendering into a PDF
+ * on the client. Tasks live in Y.js state on the client, so we accept them
+ * verbatim in the request body — the server never persists this payload.
+ */
+const MAX_SUMMARY_TASKS = 200;
+const MAX_SUMMARY_CONTENT_CHARS = 1000;
+const SUMMARY_RATE_MAX_USER = 10;
+const SUMMARY_RATE_MAX_GUEST = 3;
+
+router.post('/summary', async (req: Request, res: Response) => {
+  const userId = req.user?.userId;
+  const rateKey = userId ? `s:u:${userId}` : `s:ip:${req.ip ?? 'unknown'}`;
+  const rateMax = userId ? SUMMARY_RATE_MAX_USER : SUMMARY_RATE_MAX_GUEST;
+
+  const body = req.body as { tasks?: unknown; roomName?: unknown };
+  if (!Array.isArray(body.tasks)) {
+    res.status(400).json({ error: 'tasks must be an array' });
+    return;
+  }
+  if (body.tasks.length > MAX_SUMMARY_TASKS) {
+    res.status(413).json({ error: 'too many tasks', max: MAX_SUMMARY_TASKS });
+    return;
+  }
+
+  const roomName =
+    typeof body.roomName === 'string' && body.roomName.trim().length > 0
+      ? body.roomName.trim().slice(0, 120)
+      : undefined;
+
+  const tasks: TaskSummaryInput[] = [];
+  for (const raw of body.tasks) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    const content = typeof r.content === 'string' ? r.content.trim() : '';
+    if (!content) continue;
+    const authorName =
+      typeof r.authorName === 'string' && r.authorName.trim().length > 0
+        ? r.authorName.trim().slice(0, 80)
+        : 'Unknown';
+    const status: 'open' | 'done' = r.status === 'done' ? 'done' : 'open';
+    const createdAt = typeof r.createdAt === 'number' ? r.createdAt : Date.now();
+    tasks.push({
+      content: content.slice(0, MAX_SUMMARY_CONTENT_CHARS),
+      authorName,
+      status,
+      createdAt,
+    });
+  }
+
+  if (!allow(rateKey, rateMax)) {
+    res.status(429).json({ error: 'rate limit exceeded', retryAfterMs: RATE_WINDOW_MS });
+    return;
+  }
+
+  const result = await summarizeTasks(tasks, roomName);
   res.json(result);
 });
 
